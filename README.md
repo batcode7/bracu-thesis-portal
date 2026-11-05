@@ -34,6 +34,7 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 - The updated live Prime Admin area has actual master-level overview metrics, a complete four-person supervision display, faculty directory, useful deadline fallback, animated lookups, and a role-restricted read-only View As feature. See [`docs/PRIME_ADMIN_UPGRADE.md`](docs/PRIME_ADMIN_UPGRADE.md) for the rollout sequence.
 - The official `Faculty Details` directory in the permanent master provides initials, names, designations, status, rooms and university email addresses. No faculty email needs to be guessed from a name.
 - The live landing page includes a public **News & events** section. Regular and Prime Administrators can create and publish announcements in the **News & Events** editor, with drafts, featured notices, archives and links. It uses a separate private Google spreadsheet, not the student master. See [`docs/NEWS_AND_EVENTS.md`](docs/NEWS_AND_EVENTS.md) for setup and publishing.
+- The refreshed **live student workspace** is mobile-oriented, with thesis/group overview, all four assigned supervision slots and verified faculty contact details, separately released evaluation marks and feedback, stage-specific deadlines, a dedicated Resources tab, and bottom navigation on phones. Prime Admin supervisor preview now offers verified faculty selections. See [`docs/STUDENT_EXPERIENCE_UPGRADE.md`](docs/STUDENT_EXPERIENCE_UPGRADE.md).
 
 ## Intended real data mapping
 

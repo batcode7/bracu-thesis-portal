@@ -20,7 +20,7 @@ const students=[
   {id:'22104567',name:'Second',thesisId:'T2530124',email:'second@gmail.com',aliases:['second@g.bracu.ac.bd']},
 ];
 const groups=[
-  {id:'T2530123',title:'Research A',type:'Thesis',stage:'Pre-Thesis 2',primarySupervisor:'Faculty A'},
+  {id:'T2530123',title:'Research A',type:'Thesis',stage:'Pre-Thesis 2',primarySupervisor:'Faculty A',secondarySupervisor:'Faculty C',coSupervisor1:'Faculty B',coSupervisor2:''},
   {id:'T2530124',title:'Research B',type:'Thesis',stage:'Final Thesis',primarySupervisor:'Faculty B'},
 ];
 const marks={
@@ -44,6 +44,13 @@ test('student account is scoped to its own ID even when a different student ID i
   const result=run('first@g.bracu.ac.bd','student',{studentId:'22104567'});
   assert.equal(result.student.id,'22101234');
   assert.equal(result.group.id,'T2530123');
+  assert.equal(result.group.stage,'Pre-Thesis 2');
+  assert.equal(result.group.coSupervisor1,'Faculty B');
+  assert.equal(result.group.secondarySupervisor,'Faculty C');
+  assert.equal(result.members[0].name,'First');
+  assert.equal(result.facultyContacts.length,4);
+  assert.equal(result.facultyContacts[0].email,'faculty@bracu.ac.bd');
+  assert.equal(result.facultyContacts[1].email,''); // Unknown faculty must not get an invented email.
   assert.equal(result.evaluations.find(e=>e.phase==='P1').score,4);
   assert.equal(result.evaluations.find(e=>e.phase==='P2').score,null);
   assert.throws(()=>run('first@g.bracu.ac.bd','search',{q:'22104567'}),/Not authorized/);
@@ -92,6 +99,10 @@ test('admin semester stats count complete students once, not one per evaluator',
   delete props.SEMESTER_SOURCES_JSON;
 });
 test('only the Prime Administrator can preview another role, and previews are read only',()=>{
+  assert.throws(()=>run('admin@bracu.ac.bd','previewCandidates'),/Not authorized/);
+  const options=run('partha.bhoumik@bracu.ac.bd','previewCandidates');
+  assert.equal(options.faculty[0].email,'faculty@bracu.ac.bd');
+  assert.equal(options.faculty[0].name,'Faculty A');
   assert.throws(()=>run('admin@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
   assert.throws(()=>run('faculty@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
   const student=run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'});
@@ -142,6 +153,20 @@ test('deadline source rows are categorized and their rich-text links retained',(
     assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1']);
     assert.equal(result[1].url,'https://forms.gle/example');
   } finally {context.SpreadsheetApp=previous;}
+});
+
+test('student deadlines are scoped to the registered thesis stage on the backend',()=>{
+  const old=context.deadlineLinks_;
+  context.deadlineLinks_=()=>[
+    {id:'g',phase:'General',title:'General reference'},
+    {id:'p1',phase:'P1',title:'P1 submission'},
+    {id:'p2',phase:'P2',title:'P2 submission'},
+    {id:'ft',phase:'Defense',title:'Final defense'},
+  ];
+  try {
+    assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['p2']);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','deadlines').entries.length,4);
+  }finally{context.deadlineLinks_=old;}
 });
 
 test('administrator notices stay private until published; public feed never exposes draft or author details',()=>{

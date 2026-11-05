@@ -7,7 +7,7 @@
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
-  'session','student','supervisor','deadlines','search','detail','summary','overview','preview',
+  'session','student','supervisor','deadlines','search','detail','summary','overview','preview','previewCandidates',
   'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty',
   'registerSemester','sync','restartSync','release','aliases','setAlias','removeAlias',
   'announcements','saveAnnouncement','statusAnnouncement'

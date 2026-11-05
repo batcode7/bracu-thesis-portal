@@ -31,9 +31,9 @@ export const deadlineEntries: DeadlineEntry[] = [
   { id: 'early-defense-slide', phase: 'Early Defense', title: 'Early Final Thesis presentation slides', date: 'Wednesday · 29 March', status: 'Expired', action: 'Slide submission', url: 'https://forms.gle/DmpLpK5Vj1erj8ko6' },
 ];
 
-export const resourceLinks = [
+export const resourceLinks: Array<{title:string;detail:string;url:string;phase?:'P1'|'P2'|'Defense'}> = [
   { title: 'Thesis lifecycle', detail: 'Process flowchart', url: 'https://drive.google.com/file/d/1tMgIr8czAURIiF41qBydUZVhbinrrIzZ/view' },
   { title: 'Undergraduate thesis policy', detail: 'Student policy document', url: 'https://docs.google.com/document/d/1pAMjuQAxSEcLgkbvmx9qJGvK2BlPQhvXhgev8OeJTas/edit' },
   { title: 'Report and poster samples', detail: 'Reference folder', url: 'https://drive.google.com/drive/folders/17Vz4kBF_zH7NKX0fWd8n9aIcJtziBXtz' },
-  { title: 'Pre-Thesis 1 seminar materials', detail: 'Reference folder', url: 'https://drive.google.com/drive/folders/1EiM1EKMIGK_Ps3J4wEX_JQatnX8ruNZM' },
+  { title: 'Pre-Thesis 1 seminar materials', detail: 'Reference folder', phase:'P1', url: 'https://drive.google.com/drive/folders/1EiM1EKMIGK_Ps3J4wEX_JQatnX8ruNZM' },
 ];

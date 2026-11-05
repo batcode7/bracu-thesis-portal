@@ -19,6 +19,8 @@ export interface ThesisGroup {
   primarySupervisorInitial: string;
   secondarySupervisor?: string;
   secondarySupervisorInitial?: string;
+  coSupervisor1?: string;
+  coSupervisor2?: string;
   members: string[];
 }
 export interface Evaluation {

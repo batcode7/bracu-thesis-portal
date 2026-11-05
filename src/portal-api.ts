@@ -3,6 +3,8 @@ import { evaluations, groups, semesterSources, students, type Evaluation, type S
 export interface StudentDashboard {
   student: Student;
   group: ThesisGroup;
+  members?: Array<{id: string; name: string}>;
+  facultyContacts?: Array<{slot: string; name: string; email: string; room: string; designation: string}>;
   evaluations: Evaluation[];
 }
 export interface SupervisorDashboard {

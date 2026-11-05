@@ -165,18 +165,34 @@ export function PrimeFacultyList({ token }: { token: string }) {
 
 export function PrimePreviewDialog({ token, onClose, onStart }: { token: string; onClose: () => void; onStart: (preview: RolePreview | null) => void }) {
   const [role, setRole] = useState<RolePreview['role']>('student'), [email, setEmail] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [facultyOptions, setFacultyOptions] = useState<Array<{email:string;name:string;room:string;designation:string}>>([]);
+  const [facultyBusy, setFacultyBusy] = useState(false);
+  useEffect(() => {
+    if (role !== 'supervisor') return;
+    let active = true;
+    setFacultyBusy(true);
+    liveRequest<{faculty:Array<{email:string;name:string;room:string;designation:string}>}>(token,'previewCandidates')
+      .then(result => { if(active) setFacultyOptions(result.faculty); })
+      .catch(err => { if(active) setError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if(active) setFacultyBusy(false); });
+    return () => { active = false; };
+  },[token,role]);
+  const validFaculty = role !== 'supervisor' || facultyOptions.some(item => item.email.toLowerCase() === email.trim().toLowerCase());
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (!validFaculty) { setError('Choose an email from the verified Faculty Details directory.'); return; }
+    setBusy(true); setError('');
     try { const result = await liveRequest<RolePreview>(token, 'preview', { role, email: email.trim() }); onStart(role === 'prime_admin' ? null : result); onClose(); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   };
   return <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modalbox prime-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="prime-preview-title"><div className="modalheader"><div><span className="eyebrow">PRIME ADMIN ONLY</span><h2 id="prime-preview-title">View as another role</h2><p className="detail-subtitle">Inspect the experience without changing your authenticated identity.</p></div><button className="iconbtn" aria-label="Close preview" onClick={onClose}><X size={19} /></button></div>
-    <form className="prime-preview-form" onSubmit={event => void submit(event)}><label>Portal experience</label><select value={role} onChange={event => { setRole(event.target.value as RolePreview['role']); setError(''); }}><option value="prime_admin">Prime Admin (return to my workspace)</option><option value="admin">Regular Administrator</option><option value="supervisor">Supervisor / Faculty</option><option value="student">Student</option></select>
-      {(role === 'student' || role === 'supervisor') && <><label htmlFor="prime-preview-email">{role === 'student' ? 'Student Google Workspace email' : 'Faculty Google Workspace email'}</label><input id="prime-preview-email" type="email" placeholder={role === 'student' ? 'student@g.bracu.ac.bd' : 'faculty@bracu.ac.bd'} value={email} onChange={event => setEmail(event.target.value)} required /></>}
+    <form className="prime-preview-form" onSubmit={event => void submit(event)}><label>Portal experience</label><select value={role} onChange={event => { setRole(event.target.value as RolePreview['role']); setEmail(''); setError(''); }}><option value="prime_admin">Prime Admin (return to my workspace)</option><option value="admin">Regular Administrator</option><option value="supervisor">Supervisor / Faculty</option><option value="student">Student</option></select>
+      {role === 'supervisor' && <><label htmlFor="prime-preview-faculty">Choose a verified faculty member</label><select id="prime-preview-faculty" value={facultyOptions.some(f => f.email === email) ? email : ''} disabled={facultyBusy || facultyOptions.length === 0} onChange={event => { setEmail(event.target.value); setError(''); }}><option value="">{facultyBusy ? 'Loading verified faculty…' : 'Select faculty from the official directory'}</option>{facultyOptions.map(item => <option value={item.email} key={item.email}>{item.name} · {item.email}</option>)}</select><p className="prime-preview-hint">{facultyOptions.length ? `${facultyOptions.length} verified faculty accounts available. You may also enter one of these emails below.` : facultyBusy ? 'Checking the verified faculty list…' : 'No verified faculty emails are available. Check Faculty List and run the directory sync.'}</p></>}
+      {(role === 'student' || role === 'supervisor') && <><label htmlFor="prime-preview-email">{role === 'student' ? 'Student Google Workspace email' : 'Verified faculty Google Workspace email'}</label><input id="prime-preview-email" name="preview-target-account" autoComplete="off" type="email" placeholder={role === 'student' ? 'student@g.bracu.ac.bd' : 'faculty@bracu.ac.bd'} value={email} onChange={event => { setEmail(event.target.value); setError(''); }} required />{role === 'supervisor' && email && !validFaculty && !facultyBusy && <p className="prime-preview-warning">This email is not in Faculty Details. Choose a verified faculty account before previewing.</p>}</>}
       <div className="prime-preview-safety"><Eye size={17} /><span>Read-only support preview. Every request uses your verified Prime Admin account; the selected email is never accepted as a new login.</span></div>
       {error && <div className="live-error" role="alert">{error}</div>}
-      <button className="primarybtn" type="submit" disabled={busy}>{busy ? <><LoaderCircle size={16} className="prime-spin" /> Preparing view…</> : <>Open preview <ArrowRight size={16} /></>}</button>
+      <button className="primarybtn" type="submit" disabled={busy || facultyBusy || !validFaculty}>{busy ? <><LoaderCircle size={16} className="prime-spin" /> Preparing view…</> : <>Open preview <ArrowRight size={16} /></>}</button>
     </form>
   </section></div>;
 }
