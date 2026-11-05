@@ -11,7 +11,7 @@ function safeUrl(value?: string) {
 }
 
 /** The same organized view powers snapshot/demo and authenticated live data. */
-export function DeadlineBoard({ entries, lockedPhase }: { entries: PortalDeadline[]; lockedPhase?: string }) {
+export function DeadlineBoard({ entries, lockedPhase, availablePhases }: { entries: PortalDeadline[]; lockedPhase?: string; availablePhases?: string[] }) {
   const [phase, setPhase] = useState('All');
   const [query, setQuery] = useState('');
   const selectedPhase = lockedPhase || phase;
@@ -25,7 +25,7 @@ export function DeadlineBoard({ entries, lockedPhase }: { entries: PortalDeadlin
   return <>
     <div className="deadline-board-controls">
       <div className="deadline-filter-group" role="group" aria-label="Filter submissions by stage">
-        {(lockedPhase ? [lockedPhase] : phases).map(item => <button type="button" key={item} disabled={!!lockedPhase} aria-pressed={selectedPhase === item} className={selectedPhase === item ? 'selected' : ''} onClick={() => setPhase(item)}>{item}{item === 'All' ? <span>{entries.length}</span> : null}</button>)}
+        {(lockedPhase ? [lockedPhase] : availablePhases ? ['All',...phases.slice(1).filter(item=>availablePhases.includes(item))] : phases).map(item => <button type="button" key={item} disabled={!!lockedPhase} aria-pressed={selectedPhase === item} className={selectedPhase === item ? 'selected' : ''} onClick={() => setPhase(item)}>{item}{item === 'All' ? <span>{entries.length}</span> : null}</button>)}
       </div>
       <label className="deadline-board-search"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find an event or form" aria-label="Search deadlines and forms"/></label>
     </div>

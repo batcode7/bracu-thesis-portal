@@ -188,26 +188,30 @@ function phaseEvaluations_(student, group, studentMarks, comments) {
   result.push({id:student.id+'|Supervisor',studentId:student.id,phase:'Supervisor',semester:'Not published',score:null,maxScore:55,comment:null,evaluator:'',publication:'pending'});
   return result;
 }
-function studentDashboard_(email, studentRows, groupRows) {
-  var student = studentRows.filter(function(s){return s.email === email || s.aliases.indexOf(email) >= 0;})[0];
-  assert_(student, 'Student record not matched to the signed-in BRAC email');
-  var group = groupRows.filter(function(g){return g.id === student.thesisId;})[0]; assert_(group, 'Group not found');
-  var peers=studentRows.filter(function(s){return s.thesisId===group.id;}).map(function(s){return {id:s.id,name:s.name};});
-  var faculty=facultyDirectory_();
-  var contacts=[
+function facultyContactsForGroup_(group,faculty) {
+  return [
     {slot:'Supervisor 1',name:group.primarySupervisor},
     {slot:'Supervisor 2',name:group.secondarySupervisor},
     {slot:'Co-supervisor 1',name:group.coSupervisor1},
     {slot:'Co-supervisor 2',name:group.coSupervisor2}
   ].map(function(item){
-    var match=faculty.filter(function(f){return f.names.some(function(n){return norm_(n)===norm_(item.name)&&!!norm_(n);});})[0];
+    var matches=faculty.filter(function(f){return f.names.some(function(n){return norm_(n)===norm_(item.name)&&!!norm_(n);});});
+    var match=matches.length===1?matches[0]:null;
     return {slot:item.slot,name:item.name||'',email:match?match.email:'',room:match?match.room:'',designation:match?match.designation:''};
   });
+}
+function studentDashboard_(email, studentRows, groupRows) {
+  var student = studentRows.filter(function(s){return s.email === email || s.aliases.indexOf(email) >= 0;})[0];
+  assert_(student, 'Student record not matched to the signed-in BRAC email');
+  var group = groupRows.filter(function(g){return g.id === student.thesisId;})[0]; assert_(group, 'Group not found');
+  var peers=studentRows.filter(function(s){return s.thesisId===group.id;}).map(function(s){return {id:s.id,name:s.name};});
+  var contacts=facultyContactsForGroup_(group,facultyDirectory_());
   return { student: {id:student.id,name:student.name,email:email,thesisId:student.thesisId}, group: {id:group.id,title:group.title,type:group.type,stage:group.stage,primarySupervisor:group.primarySupervisor,secondarySupervisor:group.secondarySupervisor,coSupervisor1:group.coSupervisor1,coSupervisor2:group.coSupervisor2,members:peers.map(function(s){return s.id;})},members:peers,facultyContacts:contacts,evaluations:phaseEvaluations_(student,group,marks_()[student.id]||{p1:null,p2:null,defense:null},comments_()) };
 }
 function supervisorDashboard_(email, studentRows, groupRows) {
   var authorized = facultyGroups_(email,groupRows); var ids = authorized.map(function(g){return g.id;}),allMarks=marks_();
-  return { supervisorEmail:email,students:studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;}).map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized };
+  var faculty=facultyDirectory_();
+  return { supervisorEmail:email,students:studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;}).map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized.map(function(g){return Object.assign({},g,{facultyContacts:facultyContactsForGroup_(g,faculty)});}) };
 }
 function adminSearch_(q, stage, type, studentRows, groupRows) {
   q = norm_(q); assert_(q.length <= 120,'Search text too long');
@@ -450,6 +454,9 @@ function request_(body) {
       var ownGroup=own&&groupRows.filter(function(g){return g.id===own.thesisId;})[0];
       var ownPhase=activeDeadlinePhase_(ownGroup?ownGroup.stage:'');
       deadlines=deadlines.filter(function(entry){return !!ownPhase&&entry.phase===ownPhase;});
+    }else if(role==='supervisor'){
+      var allowed=facultyGroups_(email,groupRows).map(function(g){return activeDeadlinePhase_(g.stage);}).filter(Boolean);
+      deadlines=deadlines.filter(function(entry){return allowed.indexOf(entry.phase)>=0;});
     }
     return {entries:deadlines};
   }

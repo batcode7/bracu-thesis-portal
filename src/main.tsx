@@ -11,6 +11,7 @@ import './portal-refinements.css';
 import './prime-admin.css';
 import './announcements.css';
 import './student-experience.css';
+import './supervisor-experience.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>{PORTAL_LIVE ? <LivePortal /> : <App />}</React.StrictMode>,

@@ -7,6 +7,7 @@ import { deadlineEntries, resourceLinks } from './deadlines-data';
 import { PrimeFacultyList, PrimeOverview, PrimePreviewDialog, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
 import { AdminAnnouncements } from './Announcements';
 import StudentExperience, { studentPhase } from './StudentExperience';
+import SupervisorExperience from './SupervisorExperience';
 import type { Evaluation } from './data';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 
@@ -37,22 +38,6 @@ function LiveLogin({onToken}:{onToken:(token:string)=>Promise<void>}) {
   return <PortalWelcome><div className="live-login-control">{configured?<div ref={buttonElement}/>:<div className="live-config-alert"><LockKeyhole size={18}/> Google Workspace authentication is not configured. The portal remains locked until the administrator completes deployment.</div>}</div>{error&&<div className="live-error" role="alert">{error}</div>}</PortalWelcome>;
 }
 
-function LiveSupervisor({data}:{data:SupervisorDashboard}) {
-  const [q,setQ]=useState('');const [selected,setSelected]=useState<string|null>(null);
-  const groups=new Map(data.groups.map(group=>[group.id,group]));
-  const rows=data.students.filter(student=>[student.id,student.name,student.thesisId,groups.get(student.thesisId)?.title||''].some(v=>v.toLowerCase().includes(q.toLowerCase())));
-  const current=data.students.find(s=>s.id===selected);
-  const PhaseChip=({done,label}:{done?:boolean;label:string})=><span className={`pill ${done?'green':'gray'}`}>{label}: {done?'Recorded':'Pending'}</span>;
-  return <>
-    <div className="statgrid"><div className="card stat"><span>Assigned students</span><strong>{data.students.length}</strong><small>Verified supervisor assignment</small></div><div className="card stat"><span>Groups</span><strong>{data.groups.length}</strong><small>Assigned research groups</small></div></div>
-    <section className="card tablecard"><div className="filters"><label className="searchbox"><Search size={16}/><input placeholder="Search assigned students…" value={q} onChange={e=>setQ(e.target.value)}/></label></div><div className="tableoverflow"><table><thead><tr><th>Student</th><th>Group</th><th>Current stage</th><th>P1</th><th>P2</th><th>Defense</th><th></th></tr></thead><tbody>
-      {rows.map(student=><tr key={student.id}><td><b>{student.name}</b><small>{student.id}</small></td><td><b>{student.thesisId}</b><small>{groups.get(student.thesisId)?.title||'—'}</small></td><td>{groups.get(student.thesisId)?.stage||'—'}</td><td><PhaseChip done={student.progress?.p1} label="P1"/></td><td><PhaseChip done={student.progress?.p2} label="P2"/></td><td><PhaseChip done={student.progress?.defense} label="DEF"/></td><td><button className="lightbtn" onClick={()=>setSelected(student.id)}>Details</button></td></tr>)}
-      {!rows.length&&<tr><td colSpan={7} className="noresults">No assigned students match this search.</td></tr>}
-    </tbody></table></div></section>
-    {current&&<div className="modaloverlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setSelected(null);}}><section className="modalbox" role="dialog" aria-modal="true" aria-label="Assigned student details"><div className="modalheader"><h2>{current.name}</h2><button className="iconbtn" onClick={()=>setSelected(null)} aria-label="Close"><X size={18}/></button></div><div className="detail-pairs"><div><small>ID</small><b>{current.id}</b></div><div><small>Thesis group</small><b>{current.thesisId}</b></div><div><small>Current stage</small><b>{groups.get(current.thesisId)?.stage}</b></div><div><small>Research title</small><b>{groups.get(current.thesisId)?.title}</b></div></div><div className="phase-row"><PhaseChip done={current.progress?.p1} label="P1"/><PhaseChip done={current.progress?.p2} label="P2"/><PhaseChip done={current.progress?.defense} label="Defense"/></div></section></div>}
-  </>;
-}
-
 function LiveSearch({token}:{token:string}) {
   const [q,setQ]=useState(''),[stage,setStage]=useState('All stages'),[kind,setKind]=useState('All types'),[rows,setRows]=useState<DirectoryRow[]>([]),[selected,setSelected]=useState<Detail|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const run=async()=>{setBusy(true);setError('');try{const result=await liveRequest<{rows:DirectoryRow[]}>(token,'search',{q,stage,type:kind});setRows(result.rows);}catch(e){setError(String(e instanceof Error?e.message:e));}finally{setBusy(false);}};
@@ -68,23 +53,23 @@ function LiveSummary({token}:{token:string}) {
 }
 function CircleHelpIcon(){return <ShieldCheck size={16}/>;}
 
-function LiveDeadlines({token,stageScope}:{token:string;stageScope?:string}) {
+function LiveDeadlines({token,stageScope,allowedPhases}:{token:string;stageScope?:string;allowedPhases?:string[]}) {
   const [rows,setRows]=useState<Deadline[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   useEffect(()=>{let active=true;setLoading(true);liveRequest<{entries:Deadline[]}>(token,'deadlines').then(x=>{if(active)setRows(x.entries);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token]);
   const phase=stageScope?studentPhase(stageScope):null;
-  const reference=!loading&&!rows.length&&!stageScope;
-  const entries=(reference?deadlineEntries:rows.map(r=>({...r,date:[r.day,r.date].filter(Boolean).join(' · ')}))).filter(item=>!stageScope || (!!phase && item.phase===phase));
-  return <><div className="deadline-source-note"><Clock3 size={16}/><span>{stageScope?`Showing only ${stageScope} deadlines assigned to your thesis stage. Verify dates before submitting.`:'Submission deadlines come from the university source workbook. Verify dates and availability before submitting.'}</span></div>
+  const reference=!loading&&!rows.length&&!stageScope&&!allowedPhases;
+  const entries=(reference?deadlineEntries:rows.map(r=>({...r,date:[r.day,r.date].filter(Boolean).join(' · ')}))).filter(item=>stageScope?!!phase&&item.phase===phase:allowedPhases?allowedPhases.includes(item.phase):true);
+  return <><div className="deadline-source-note"><Clock3 size={16}/><span>{stageScope?`Showing only ${stageScope} deadlines assigned to your thesis stage. Verify dates before submitting.`:allowedPhases?'Showing deadlines for the active stages of your assigned research groups. Verify dates before submitting.':'Submission deadlines come from the university source workbook. Verify dates and availability before submitting.'}</span></div>
     {error&&<div className="live-error" role="alert">The live deadline source could not be loaded: {error}</div>}
     {reference&&<div className="prime-deadline-status"><BookOpen size={17}/><span>Showing a clearly labeled reference snapshot from 5 November 2026 because the live feed has no available entries. Dates may be outdated.</span></div>}
-    {loading?<section className="card loading">Loading relevant deadlines…</section>:<DeadlineBoard entries={entries} lockedPhase={stageScope?(phase||'No active stage'):undefined}/>}
+    {loading?<section className="card loading">Loading relevant deadlines…</section>:<DeadlineBoard entries={entries} lockedPhase={stageScope?(phase||'No active stage'):undefined} availablePhases={allowedPhases}/>}
   </>;
 }
 
-function LiveResources({stageScope}:{stageScope?:string}) {
+function LiveResources({stageScope,allowedPhases}:{stageScope?:string;allowedPhases?:string[]}) {
   const phase=stageScope?studentPhase(stageScope):null;
-  const links=resourceLinks.filter(item=>!stageScope||!item.phase||item.phase===phase);
-  return <div className="student-resources-view"><div className="student-eval-intro"><span className="eyebrow">ACADEMIC MATERIALS</span><h2>Useful resources</h2><p>Important departmental guides, templates, and reference documents. {stageScope?'Materials unrelated to your current stage are hidden.':'Browse the resources used throughout the thesis process.'}</p></div>
+  const links=resourceLinks.filter(item=>!item.phase||(stageScope?item.phase===phase:allowedPhases?allowedPhases.includes(item.phase):true));
+  return <div className="student-resources-view"><div className="student-eval-intro"><span className="eyebrow">ACADEMIC MATERIALS</span><h2>Useful resources</h2><p>Important departmental guides, templates, and reference documents. {stageScope?'Materials unrelated to your current stage are hidden.':allowedPhases?'Showing common guides and materials relevant to your assigned groups.':'Browse the resources used throughout the thesis process.'}</p></div>
     <div className="prime-resource-grid student-resource-list">{links.map(item=><a href={item.url} target="_blank" rel="noopener noreferrer" key={item.title}><BookOpen size={20}/><span><b>{item.title}</b><small>{item.detail}</small></span><ArrowUpRight size={16}/></a>)}</div>
   </div>;
 }
@@ -128,7 +113,7 @@ export default function LivePortal() {
   const nav=useMemo(()=>role==='student'?
     [['dashboard','Dashboard',LayoutDashboard],['evaluations','My Evaluations',ClipboardList],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen]]:
     role==='supervisor'?
-      [['dashboard','My Students',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],['profile','Profile',Users]]:
+      [['dashboard','My Groups',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen]]:
       [['dashboard','Overview',LayoutDashboard],['search','Student Search',Search],['sources','Semester Sources',TableProperties],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],['announcements','News & Events',Megaphone],
         ...(showPrimeControls?[['faculty','Faculty List',Users],['admins','Administrators',ShieldCheck]]:[]),['profile','Profile',Users]],
     [role,showPrimeControls]);
@@ -142,13 +127,14 @@ export default function LivePortal() {
   },[session,token]);
   if(!session)return <LiveLogin onToken={login}/>;
   const displayData=preview?preview.data:data;
-  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My students':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrator management',faculty:'Faculty list',announcements:'News & events',profile:'My profile'})[page];
+  const supervisorPhases=role==='supervisor'&&displayData?[...new Set((displayData as SupervisorDashboard).groups.map(group=>studentPhase(group.stage)).filter((phase):phase is 'P1'|'P2'|'Defense'=>!!phase))]:undefined;
+  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrator management',faculty:'Faculty list',announcements:'News & events',profile:'My profile'})[page];
   const exitPreview=()=>{setPreview(null);setPage('dashboard');setError('');};
-  return <div className={`application ${role==='student'?'student-mode':''}`}>
+  return <div className={`application ${role==='student'?'student-mode':role==='supervisor'?'supervisor-mode':''}`}>
     <aside className={`sidebar ${drawer?'open':''}`}>
       <div className="brand"><span className="brand-symbol">B</span><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
       <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{setPage(key as LivePage);setDrawer(false);}}><Icon size={17}/>{label as string}</button>)}</nav></div>
-      {role==='student'?<div className="student-sidebar-exit"><button onClick={logout}><LogOut size={17}/> Sign out</button></div>:<div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Prime Admin support preview':'Role-restricted access'}</small></span></div>}
+      {role==='student'||role==='supervisor'?<div className="student-sidebar-exit"><button onClick={logout}><LogOut size={17}/> Sign out</button></div>:<div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Prime Admin support preview':'Role-restricted access'}</small></span></div>}
     </aside>
     {drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}
     <div className="main">
@@ -158,10 +144,10 @@ export default function LivePortal() {
         <div className="pageheading"><div><span className="eyebrow">{role?.replace('_',' ').toUpperCase()}{preview?' · PREVIEW':''}</span><h1>{heading}</h1><p>{preview?`Viewing ${preview.email} · Read-only`:session.email}</p></div><div className="prime-heading-actions">{showPrimeControls&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> View as another role</button>}{preview&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> Change preview</button>}<button className="lightbtn live-logout" onClick={logout}><LogOut size={15}/> Sign out</button></div></div>
         {error&&<div className="live-error" role="alert">{error} <button className="lightbtn" onClick={logout}>Sign in again</button></div>}
         {page==='profile'?<section className="card profilecard"><div className="eyebrow">{preview?'ADMINISTRATIVE PREVIEW':'VERIFIED GOOGLE WORKSPACE ACCOUNT'}</div><h2>{preview?preview.email:session.name}</h2><p>{preview?'Read-only view; not a separate Google login':session.email}</p><p>Role: {role}</p></section>:
-          page==='deadlines'?(role==='student'&&!displayData?<section className="card loading">Loading your current thesis stage…</section>:<LiveDeadlines token={token} stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined}/>):
-          page==='resources'?(role==='student'&&!displayData?<section className="card loading">Loading stage-specific resources…</section>:<LiveResources stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined}/>):
+          page==='deadlines'?((role==='student'||role==='supervisor')&&!displayData?<section className="card loading">Loading your assigned thesis stages…</section>:<LiveDeadlines token={token} stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined} allowedPhases={supervisorPhases}/> ):
+          page==='resources'?((role==='student'||role==='supervisor')&&!displayData?<section className="card loading">Loading relevant resources…</section>:<LiveResources stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined} allowedPhases={supervisorPhases}/> ):
           role==='student'?displayData?<StudentExperience data={displayData as StudentDashboard} page={page==='evaluations'?'evaluations':'dashboard'} onNavigate={setPage}/>:<section className="card loading">Loading your thesis workspace…</section>:
-          role==='supervisor'?displayData?<LiveSupervisor data={displayData as SupervisorDashboard}/>:<section className="card loading">Loading assigned groups…</section>:
+          role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard}/>:<section className="card loading">Loading assigned groups…</section>:
           page==='dashboard'?(showPrimeControls?<PrimeOverview token={token} onNavigate={setPage}/>:<LiveSummary token={token}/>):
           page==='search'?(showPrimeControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
           page==='sources'?<LiveSources token={token} readOnly={!!preview}/>:
@@ -171,9 +157,11 @@ export default function LivePortal() {
         <footer className="footer"><GraduationCap size={16}/> BRAC University Thesis Evaluation Portal<span>Authorized access only</span></footer>
       </main>
     </div>
-    {role==='student'&&<nav className="student-mobile-nav" aria-label="Student quick navigation">{([
+    {(role==='student'||role==='supervisor')&&<nav className="student-mobile-nav" aria-label={`${role==='student'?'Student':'Supervisor'} quick navigation`}>{(role==='student'?([
       ['dashboard','Dashboard',LayoutDashboard],['evaluations','Evaluations',ClipboardList],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],
-    ] as const).map(([key,label,Icon])=><button key={key} type="button" aria-current={page===key?'page':undefined} className={page===key?'selected':''} onClick={()=>{setPage(key);setDrawer(false);}}><Icon size={19}/><span>{label}</span></button>)}</nav>}
+    ] as const):([
+      ['dashboard','Groups',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],
+    ] as const)).map(([key,label,Icon])=><button key={key} type="button" aria-current={page===key?'page':undefined} className={page===key?'selected':''} onClick={()=>{setPage(key);setDrawer(false);}}><Icon size={19}/><span>{label}</span></button>)}</nav>}
     {previewDialog&&actualPrime&&<PrimePreviewDialog token={token} onClose={()=>setPreviewDialog(false)} onStart={result=>{setPreview(result);setPage('dashboard');setError('');}}/>}
   </div>;
 }

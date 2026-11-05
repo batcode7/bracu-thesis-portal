@@ -60,6 +60,9 @@ test('supervisor receives only the group matched by trusted email/name mapping',
   const result=run('faculty@bracu.ac.bd','supervisor');
   assert.deepEqual(Array.from(result.students,s=>s.id),['22101234']);
   assert.deepEqual(Array.from(result.groups,g=>g.id),['T2530123']);
+  assert.equal(result.groups[0].facultyContacts[0].email,'faculty@bracu.ac.bd');
+  assert.equal(result.groups[0].facultyContacts[1].email,'');
+  assert.equal(result.groups[0].coSupervisor1,'Faculty B');
   assert.equal(result.students[0].progress.p1,true);
   assert.throws(()=>run('faculty@bracu.ac.bd','detail',{studentId:'22104567'}),/Not authorized/);
 });
@@ -165,6 +168,7 @@ test('student deadlines are scoped to the registered thesis stage on the backend
   ];
   try {
     assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['p2']);
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['p2']);
     assert.equal(run('partha.bhoumik@bracu.ac.bd','deadlines').entries.length,4);
   }finally{context.deadlineLinks_=old;}
 });

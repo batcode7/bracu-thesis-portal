@@ -10,7 +10,7 @@ export interface StudentDashboard {
 export interface SupervisorDashboard {
   supervisorEmail: string;
   students: Array<Student & { progress?: { p1: boolean; p2: boolean; defense: boolean } }>;
-  groups: ThesisGroup[];
+  groups: Array<ThesisGroup & {facultyContacts?:Array<{slot:string;name:string;email:string;room:string;designation:string}>}>;
 }
 export interface PortalApi {
   studentDashboard(): Promise<StudentDashboard>;
