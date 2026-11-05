@@ -1,0 +1,11 @@
+node_modules/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.dev.vars*
+dist/
+.openai/
+outputs/

@@ -1,0 +1,48 @@
+/* Live portal additions; the light BRAC academic design is shared with the demo. */
+.live-login-wrap{min-height:100vh;display:grid;place-items:center;padding:30px 18px;background:#f8fafc}
+.live-login{width:min(100%,490px);text-align:center;padding:46px 42px 35px}
+.live-logo{margin:0 auto 22px;display:grid;place-items:center;background:#003e7e;color:#fff;font-weight:800;font-size:30px;border-radius:15px;width:65px;height:65px}
+.live-login h1{color:#173554;font-size:26px;letter-spacing:-.75px;margin:13px 0 12px}
+.live-login p{color:#71869c;font-size:13px;line-height:1.7;max-width:350px;margin:0 auto}
+.live-login-control{min-height:110px;display:grid;place-items:center;margin:12px auto}
+.live-config-alert{display:flex;align-items:center;gap:12px;text-align:left;background:#fff8ed;border:1px solid #f0dfc2;color:#846237;font-size:12px;padding:17px;border-radius:10px;line-height:1.55}
+.live-config-alert svg{flex-shrink:0}
+.live-login-note{display:flex;align-items:center;justify-content:center;gap:9px;color:#8a9baa;font-size:10px;line-height:1.5;padding-top:24px;border-top:1px solid #edf1f6}
+.live-error{padding:14px 17px;border-radius:9px;border:1px solid #f0c9cb;color:#8f383f;background:#fff0f0;font-size:12px;margin:16px 0;line-height:1.6}
+.live-logout{display:flex;align-items:center;gap:8px}
+.live-role{font-size:11px;text-transform:capitalize;font-weight:700;color:#446481;background:#eef5fc;border-radius:20px;padding:9px 12px}
+.detail-pairs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin:22px 0}
+.detail-pairs>div{padding:14px;border:1px solid #edf0f4;border-radius:9px;min-width:0}
+.detail-pairs small{display:block;color:#8798a9;font-size:11px;margin-bottom:8px}
+.detail-pairs b{color:#274660;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.admin-query{padding:21px;display:flex;align-items:end;gap:16px}
+.admin-query-main{flex:1;min-width:0}
+.admin-query-main>label{display:block;color:#274660;font-weight:700;font-size:12px;margin-bottom:10px}
+.query-filters{display:flex;gap:9px;align-items:center}
+.query-filters select,.formrow select{padding:12px 13px;border:1px solid #d9e3ee;border-radius:8px;background:#fff;color:#496681;font-size:12px;min-width:130px}
+.admin-results{overflow:hidden}
+.admin-detail{max-width:720px}
+.detail-section{margin-top:25px;border-top:1px solid #edf1f5;padding-top:14px}
+.detail-section h3{font-size:14px;color:#234563;margin:6px 0 17px}
+.memberlist{display:grid;gap:8px}
+.memberlist>div{display:flex;gap:11px;align-items:center;background:#f7fafc;border:1px solid #eff3f7;border-radius:8px;padding:11px 13px;color:#496782;font-size:12px}
+.memberlist small{margin-left:auto;color:#94a6b5}
+.mark-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.mark-summary>div{background:#f4f8fc;border:1px solid #e8eff6;border-radius:9px;padding:13px;min-width:0}
+.mark-summary span{display:block;color:#899aab;font-size:10px;margin-bottom:10px}
+.mark-summary strong{font-size:17px;color:#17477a}
+.source-live-list{display:grid;gap:8px;margin:20px 0}
+.source-live-list>div{display:flex;justify-content:space-between;gap:16px;border:1px solid #e8edf3;background:#f8fafc;padding:14px;border-radius:9px}
+.source-live-list b{font-size:12px;color:#365572}.source-live-list small{font-size:11px;color:#8398aa}
+.source-live-list:empty:after{content:'No semester sources registered.';font-size:12px;color:#8398aa}
+.admincard h3{font-size:16px;color:#1d3a55;margin:0 0 10px}
+.admincard>.smallmuted{margin:9px 0 22px}
+.admincard>.formrow{flex-wrap:wrap;align-items:center}
+.admincard>.formrow>*{min-width:120px}
+.deadline-link{display:inline-flex;align-items:center;gap:4px;color:#0561a7;font-size:12px;font-weight:700;text-decoration:none}
+.deadline-link:hover{text-decoration:underline}
+.deadline-table{overflow:hidden}
+.deadline-table table{min-width:740px}
+.live-feedback{white-space:pre-line;overflow-wrap:anywhere}
+@media(max-width:1050px){.admin-query{align-items:stretch;flex-direction:column}.query-filters{flex-wrap:wrap}}
+@media(max-width:700px){.live-login{padding:35px 22px}.live-login h1{font-size:22px}.live-role{font-size:10px}.mark-summary{grid-template-columns:repeat(2,1fr)}.detail-pairs{grid-template-columns:1fr}.query-filters>*{flex:1}.query-filters select{min-width:110px}.admin-query{padding:17px}.source-live-list>div{flex-direction:column;gap:7px}.admincard>.formrow>*{width:100%}.live-logout{align-self:flex-start}}

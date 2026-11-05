@@ -1,0 +1,94 @@
+/* Shared, restrained sign-in surface for both configured Google login and private UI preview. */
+.portal-welcome{min-height:100vh;display:flex;flex-direction:column;background:#f8fafc;color:#263c52}
+.welcome-header{display:flex;justify-content:space-between;align-items:center;padding:24px clamp(24px,5vw,75px);border-bottom:1px solid #e8edf2;background:#fff}
+.welcome-brand{display:flex;align-items:center;gap:12px}
+.welcome-mark{display:grid;place-items:center;background:#103f69;color:#fff;width:41px;height:41px;border-radius:11px;font-weight:800;font-size:20px}
+.welcome-brand strong{display:block;font-size:13px;letter-spacing:-.2px}
+.welcome-brand small{display:block;font-size:10px;letter-spacing:.2px;color:#92a1b0;margin-top:4px}
+.welcome-security{display:flex;align-items:center;gap:8px;color:#7d92a7;font-size:11px;font-weight:600}
+.welcome-main{width:min(1120px,calc(100% - 64px));margin:auto;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(340px,.9fr);gap:clamp(48px,7vw,105px);align-items:center;padding:78px 0 90px}
+.welcome-overview{max-width:550px}
+.welcome-kicker,.welcome-auth-kicker{color:#6688a4;font-size:10px;font-weight:800;letter-spacing:1.6px;display:flex;align-items:center;gap:10px}
+.welcome-kicker-dot{width:7px;height:7px;background:#6b9e93;border-radius:50%}
+.welcome-overview h1{font-size:clamp(37px,4.2vw,57px);font-weight:650;letter-spacing:-2.4px;line-height:1.12;color:#183b5a;margin:21px 0}
+.welcome-overview h1 em{font-style:normal;color:#6d889e}
+.welcome-overview>p{color:#7c90a3;line-height:1.9;font-size:14px;max-width:440px;margin:0}
+.welcome-stages{margin-top:46px;border-top:1px solid #e1e8ee;border-bottom:1px solid #e1e8ee;max-width:440px}
+.welcome-stages>div{display:flex;align-items:center;gap:18px;padding:16px 0;color:#39566e;font-size:13px;font-weight:600}
+.welcome-stages>div+div{border-top:1px solid #e9edf2}
+.welcome-stage-number{color:#8da1b2;letter-spacing:1px;font-size:11px;font-weight:700;width:24px}
+.welcome-stages svg{margin-left:auto;color:#88a79f}
+.welcome-footnote{display:flex;gap:11px;align-items:start;color:#94a5b4;font-size:11px;line-height:1.8;margin-top:25px;max-width:460px}
+.welcome-footnote svg{flex-shrink:0;margin-top:1px;color:#8ea8b9}
+.welcome-auth{padding:43px 39px;border-radius:18px;box-shadow:0 20px 60px #23445d0a,0 3px 14px #23445d06;border-color:#e5ebf0}
+.welcome-auth-icon{display:grid;place-items:center;width:46px;height:46px;border:1px solid #dfebf2;border-radius:13px;color:#35668a;background:#f4f8fb;margin-bottom:28px}
+.welcome-auth-kicker{margin-bottom:11px;font-size:10px}
+.welcome-auth h2{color:#1c3b55;font-size:25px;font-weight:650;letter-spacing:-.75px;margin:0 0 12px}
+.welcome-auth>p{color:#8397a8;line-height:1.75;font-size:13px;margin:0}
+.welcome-signin-slot{margin-top:28px}
+.welcome-signin-slot .live-login-control{min-height:auto;display:flex;justify-content:flex-start;margin:0;max-width:100%}
+.welcome-signin-slot .live-login-control>div{max-width:100%}
+.welcome-domain-note{display:flex;gap:9px;flex-wrap:wrap;margin-top:19px}
+.welcome-domain-note span{border:1px solid #e7edf2;background:#f9fbfc;border-radius:20px;padding:8px 10px;color:#8ba0b1;font-size:11px}
+.welcome-auth-footer{display:flex;align-items:center;gap:8px;border-top:1px solid #eef1f4;margin-top:31px;padding-top:21px;color:#9cabb7;font-size:10px;line-height:1.5}
+.welcome-bottom{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:21px clamp(24px,5vw,75px);border-top:1px solid #e8edf2;color:#9aabba;font-size:10px}
+.welcome-bottom>span:last-child{display:flex;align-items:center;gap:8px}
+.welcome-demo-alert{display:flex;align-items:start;gap:11px;border:1px solid #e4eaf0;background:#f8fafc;border-radius:10px;padding:14px;color:#71889b;font-size:11px;line-height:1.7}
+.welcome-demo-alert svg{flex-shrink:0;margin-top:1px;color:#7898af}
+.welcome-demo-button{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#174b75;border:0;color:white;border-radius:9px;width:100%;padding:15px 18px;font-weight:650;font-size:12px;margin-top:16px;transition:background .18s}
+.welcome-demo-button:hover{background:#103e65}
+.welcome-demo-hint{font-size:11px!important;margin:11px 0 0!important;color:#94a6b4!important}
+.demo-exit{border:0;background:transparent;color:#67859c;font-weight:600;font-size:11px;padding:8px}
+.demo-exit:hover{color:#1e587f}
+@media(max-width:860px){.welcome-main{grid-template-columns:1fr;max-width:540px;gap:38px;padding:48px 0 70px}.welcome-overview h1{font-size:40px}.welcome-stages{margin-top:24px}.welcome-overview>p{line-height:1.7}.welcome-footnote{display:none}}
+@media(max-width:600px){.welcome-header{padding:18px 20px}.welcome-security{display:none}.welcome-main{width:calc(100% - 36px);padding:41px 0 50px}.welcome-overview h1{font-size:36px;letter-spacing:-1.5px}.welcome-overview>p{font-size:12px}.welcome-stages>div{padding:12px 0;font-size:12px}.welcome-auth{padding:30px 23px}.welcome-auth h2{font-size:23px}.welcome-bottom{padding:20px;flex-direction:column;align-items:start}.demo-exit{font-size:10px}}
+
+/* Submission schedule: clear hierarchy, subtle status colors, no wide overflow table. */
+.deadline-intro{display:flex;justify-content:space-between;gap:24px;align-items:center;margin:1px 0 19px}
+.deadline-intro h2{font-size:23px;letter-spacing:-.6px;color:#1b3954;margin:9px 0 8px;font-weight:650}
+.deadline-intro p{font-size:12px;line-height:1.7;color:#8294a6;margin:0;max-width:590px}
+.deadline-intro-icon{display:grid;place-items:center;width:49px;height:49px;border-radius:13px;color:#6486a2;background:#edf4f9;flex-shrink:0}
+.deadline-source-note{display:flex;align-items:start;gap:11px;border:1px solid #e4ebf2;border-radius:9px;padding:14px 16px;background:#f5f8fb;color:#7a90a3;font-size:11px;line-height:1.75}
+.deadline-source-note svg{margin-top:2px;flex-shrink:0;color:#7c9ab0}
+.deadline-source-note strong{color:#55718a}
+.deadline-board-controls{display:flex;justify-content:space-between;align-items:center;gap:17px;margin-top:30px;flex-wrap:wrap}
+.deadline-filter-group{display:flex;gap:6px;flex-wrap:wrap}
+.deadline-filter-group button{display:flex;align-items:center;gap:8px;border:1px solid transparent;padding:10px 13px;font-size:11px;font-weight:650;color:#8094a7;border-radius:8px;background:transparent;transition:background .15s,color .15s}
+.deadline-filter-group button:hover{background:#eef3f8}
+.deadline-filter-group button.selected{color:#225b86;background:#e8f1f8;border-color:#d7e6f1}
+.deadline-filter-group button span{background:#dce9f2;color:#44769a;padding:2px 6px;font-size:9px;border-radius:20px}
+.deadline-board-search{display:flex;align-items:center;gap:10px;min-width:225px;max-width:280px;height:43px;flex:1;border:1px solid #dfe8ee;background:#fff;color:#9aaaba;border-radius:9px;padding:0 13px}
+.deadline-board-search input{border:0;outline:0;flex:1;min-width:0;background:transparent;color:#38536b;font-size:12px}
+.deadline-board-search input:focus-visible{outline:0}
+.deadline-board-search:focus-within{border-color:#93b5cd;box-shadow:0 0 0 3px #dcecf5}
+.deadline-board-summary{display:flex;justify-content:space-between;gap:12px;color:#9aaaba;font-size:10px;margin:15px 2px 24px}
+.deadline-groups{display:grid;gap:25px}
+.deadline-phase-section{background:white;border:1px solid #e6edf2;border-radius:12px;overflow:hidden;box-shadow:0 3px 17px #193a5d04}
+.deadline-phase-heading{padding:17px 23px;background:#fbfcfd;border-bottom:1px solid #edf1f4}
+.deadline-phase-heading>div{display:flex;align-items:center;gap:11px}
+.deadline-phase-marker{width:7px;height:7px;border-radius:50%;background:#76a0bc}
+.deadline-phase-heading h3{color:#28445e;font-size:13px;font-weight:750;letter-spacing:-.15px;margin:0}
+.deadline-phase-count{color:#9aaaba;font-size:10px;margin-left:auto}
+.deadline-event{display:grid;grid-template-columns:minmax(230px,1fr) minmax(130px,.55fr) minmax(185px,.65fr);align-items:center;column-gap:24px;min-height:84px;padding:17px 23px}
+.deadline-event+.deadline-event{border-top:1px solid #eef2f5}
+.deadline-event-main{display:flex;flex-direction:column;gap:8px;min-width:0}
+.deadline-event-main strong{font-size:12px;font-weight:650;color:#304b64;line-height:1.6}
+.deadline-event-phase{display:none;font-size:10px;color:#95a6b5}
+.deadline-event-date{display:flex;align-items:start;gap:8px;color:#71899d;font-size:11px;line-height:1.6}
+.deadline-event-date svg{flex-shrink:0;color:#a1b1be;margin-top:2px}
+.deadline-event-action{display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0}
+.deadline-event-status{flex-shrink:0;border-radius:18px;font-size:10px;font-weight:650;padding:7px 9px;color:#6b8798;background:#edf3f7;white-space:nowrap}
+.deadline-event-status.expired{color:#987b64;background:#f6f1ed}
+.deadline-event-status.onsite{color:#708ba0;background:#eef3f7}
+.deadline-event-action a,.deadline-event-offline{display:inline-flex;align-items:center;gap:3px;justify-content:flex-end;text-decoration:none;text-align:right;font-size:11px;font-weight:700;line-height:1.4;color:#236a9c}
+.deadline-event-action a:hover{text-decoration:underline;color:#0b4c7b}
+.deadline-event-offline{color:#9eacb8;font-weight:500}
+.deadline-event-action a svg,.deadline-event-offline svg{flex-shrink:0}
+.deadline-empty{display:flex;flex-direction:column;align-items:center;padding:45px 22px;text-align:center;color:#93a8b7}
+.deadline-empty strong{color:#38566e;margin-top:12px;font-size:14px}
+.deadline-empty p{font-size:12px;line-height:1.6}
+.deadline-empty button{border:1px solid #dbe7ef;border-radius:8px;background:#f3f8fb;color:#306990;font-size:11px;font-weight:700;padding:10px 15px;margin-top:8px}
+.deadline-resources-heading{margin-top:37px}
+@media(max-width:1100px){.deadline-event{grid-template-columns:minmax(180px,1fr) minmax(120px,.5fr) minmax(180px,.7fr);gap:12px;padding:15px 18px}.deadline-event-action{gap:8px}}
+@media(max-width:820px){.deadline-event{grid-template-columns:minmax(0,1fr) minmax(150px,.8fr);row-gap:9px}.deadline-event-main{grid-column:1/3}.deadline-event-action{justify-content:flex-end}}
+@media(max-width:560px){.deadline-board-controls{align-items:stretch}.deadline-filter-group{width:100%;overflow-x:auto;flex-wrap:nowrap;padding-bottom:3px}.deadline-filter-group button{white-space:nowrap}.deadline-board-search{max-width:none;width:100%;flex:auto}.deadline-board-summary span:last-child{display:none}.deadline-phase-heading{padding:15px 16px}.deadline-event{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:17px 16px}.deadline-event-main strong{font-size:12px}.deadline-event-date{font-size:11px}.deadline-event-action{justify-content:space-between;border-top:1px solid #f0f3f5;padding-top:11px}.deadline-intro h2{font-size:22px}.deadline-intro-icon{display:none}}

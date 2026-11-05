@@ -1,0 +1,19 @@
+/* Academic source registry; no live student information is displayed. */
+.master-source{display:flex;gap:16px;align-items:center;padding:18px 26px;margin-bottom:13px}
+.master-source .sourcecontent{min-width:0}
+.phasechips{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.phasechips span{background:#f3f7fb;border:1px solid #e6edf4;border-radius:5px;padding:5px 8px;color:#72859a;font-size:10px;font-weight:700}
+.maphead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:29px 0 14px}
+.maphead h3{font-size:16px;letter-spacing:-.35px;margin:0;color:#1a344f}
+.maphead p{color:#8d9fb1;font-size:12px;margin:7px 0 0}
+.maphead .lightbtn{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.mappingstack{display:grid;gap:13px}
+.mappingsheet{padding:22px;min-width:0}
+.mappingsheet h4{margin:0 0 15px;font-size:13px;color:#27435e}
+.mappingsheet table{min-width:620px}
+.mappingsheet th{padding:12px 14px}
+.mappingsheet td{padding:13px 14px;line-height:1.5}
+.mappingnote{margin:14px 0 0;font-size:11px;color:#8d9db0;line-height:1.6}
+.mappingrules{margin:0;padding-left:22px;color:#5b7188;line-height:1.85;font-size:12px}
+.mappingrules li{padding-left:6px;margin:4px 0}
+@media(max-width:700px){.master-source{padding:17px;flex-wrap:wrap}.sourcerow{align-items:flex-start;flex-wrap:wrap}.sourcerow>.pill{margin-left:58px}.maphead{align-items:flex-start}.mappingstack .mappingsheet{padding:15px}}
