@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ArrowRight, BookOpenCheck, CheckCircle2, GraduationCap, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { PublicAnnouncements } from './Announcements';
 
 export function PortalWelcome({ children, isDemo = false }: { children: ReactNode; isDemo?: boolean }) {
   return <div className="portal-welcome">
@@ -29,6 +30,7 @@ export function PortalWelcome({ children, isDemo = false }: { children: ReactNod
         <div className="welcome-auth-footer"><LockKeyhole size={14}/> {isDemo ? 'This preview uses fictional records only.' : 'Your access is verified for every request.'}</div>
       </section>
     </main>
+    <PublicAnnouncements isDemo={isDemo} />
     <footer className="welcome-bottom"><span>BRAC University · Department of Computer Science and Engineering</span><span>Academic records · Authorized access only <ArrowRight size={13}/></span></footer>
   </div>;
 }

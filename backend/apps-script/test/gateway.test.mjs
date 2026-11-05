@@ -9,6 +9,7 @@ const context=vm.createContext({
   console,
   PropertiesService:{getScriptProperties:()=>({
     getProperty:key=>props[key]||null,
+    getProperties:()=>({...props}),
     setProperty:(key,value)=>{props[key]=value;},
     deleteProperty:key=>{delete props[key];},
   })},
@@ -89,4 +90,103 @@ test('admin semester stats count complete students once, not one per evaluator',
   assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[0].P1.students,0);
   context.comments_=()=>evaluations;
   delete props.SEMESTER_SOURCES_JSON;
+});
+test('only the Prime Administrator can preview another role, and previews are read only',()=>{
+  assert.throws(()=>run('admin@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
+  assert.throws(()=>run('faculty@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
+  const student=run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'});
+  assert.equal(student.role,'student');
+  assert.equal(student.data.student.id,'22101234');
+  assert.equal(student.data.evaluations.find(e=>e.phase==='P2').score,null);
+  const supervisor=run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'faculty@bracu.ac.bd'});
+  assert.deepEqual(Array.from(supervisor.data.groups,g=>g.id),['T2530123']);
+  const admin=run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'});
+  assert.equal(admin.role,'admin');assert.equal(admin.data,null);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'unknown@g.bracu.ac.bd'}),/No student record/);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'unknown@bracu.ac.bd'}),/Faculty email not in/);
+});
+test('Prime overview distinguishes actual master records from released semester statistics',()=>{
+  const report=run('partha.bhoumik@bracu.ac.bd','overview');
+  assert.equal(report.students,2);assert.equal(report.groups,2);
+  assert.equal(report.recorded.P1,2);assert.equal(report.recorded.Defense,1);
+  assert.equal(report.semesters[0].P1.students,0); // default semester is Summer 2026
+  assert.throws(()=>run('first@g.bracu.ac.bd','overview'),/Not authorized/);
+});
+test('official Faculty Details rows populate the secure directory without manually entered emails',()=>{
+  const previous=context.SpreadsheetApp;
+  const values=[['Initial','Name','Designation','Status','Room','Email'],['FA','Faculty A','Lecturer','Full Time','4A20','faculty@bracu.ac.bd'],['FB','Faculty B','Senior Lecturer','Full Time','4A21','other@bracu.ac.bd']];
+  context.SpreadsheetApp={openById:()=>({getSheetByName:tab=>tab==='Faculty Details'?{getLastRow:()=>values.length,getRange:()=>({getDisplayValues:()=>values})}:null})};
+  try {
+    const imported=context.refreshFacultyDirectory_(true);
+    assert.equal(imported.length,2);
+    const listing=run('partha.bhoumik@bracu.ac.bd','facultyList');
+    assert.equal(listing.matched,2);
+    const faculty=listing.faculty.find(row=>row.email==='faculty@bracu.ac.bd');
+    assert.equal(faculty.name,'Faculty A');assert.equal(faculty.initial,'FA');
+    assert.equal(faculty.designation,'Lecturer');assert.equal(faculty.room,'4A20');
+    assert.equal(faculty.groups,1);
+    assert.throws(()=>run('admin@bracu.ac.bd','facultyList'),/Not authorized/);
+  } finally {
+    context.SpreadsheetApp=previous;
+    delete props.FACULTY_AUTO_PARTS;delete props.FACULTY_AUTO_UPDATED;
+    for(const key of Object.keys(props))if(key.startsWith('FACULTY_AUTO_'))delete props[key];
+  }
+});
+test('deadline source rows are categorized and their rich-text links retained',()=>{
+  const previous=context.SpreadsheetApp;
+  const rows=[['ALL','Information update','Monday','21 September','Expired','Click here'],['Pre-Thesis 1','Report submission','Friday','7 October','Expired','Click here'],['','Poster submission','Saturday','8 October','Reference','Link']];
+  const rich=rows.map((row,i)=>row.map((_,j)=>({getLinkUrl:()=>j===5&&i===1?'https://forms.gle/example':null,getRuns:()=>[]})));
+  context.SpreadsheetApp={openById:()=>({getSheetByName:()=>({getLastRow:()=>4,getRange:()=>({getDisplayValues:()=>rows,getRichTextValues:()=>rich})})})};
+  try {
+    const result=run('partha.bhoumik@bracu.ac.bd','deadlines').entries;
+    assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1']);
+    assert.equal(result[1].url,'https://forms.gle/example');
+  } finally {context.SpreadsheetApp=previous;}
+});
+
+test('administrator notices stay private until published; public feed never exposes draft or author details',()=>{
+  const previous={spreadsheet:context.SpreadsheetApp,lock:context.LockService,cache:context.CacheService,util:context.Utilities,students:context.students_};
+  const rows=[];
+  const sheet={
+    setName:()=>{},
+    getLastRow:()=>rows.length,
+    getRange:(r,c,height,width)=>({
+      setNumberFormat(){return this;},
+      setValues:values=>{
+        for(let i=0;i<values.length;i++)rows[r-1+i]=values[i].map(String);
+      },
+      getDisplayValues:()=>Array.from({length:height},(_,i)=>Array.from({length:width},(_,j)=>rows[r-1+i]?.[j]||'')),
+    }),
+  };
+  const book={getSheets:()=>[sheet],getSheetByName:name=>name==='Announcements'?sheet:null,getId:()=> 'news-sheet'};
+  const cache=new Map();
+  context.SpreadsheetApp={create:()=>book,openById:id=>{assert.equal(id,'news-sheet');return book;}};
+  context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
+  context.CacheService={getScriptCache:()=>({get:key=>cache.get(key)||null,put:(key,value)=>cache.set(key,value),remove:key=>cache.delete(key)})};
+  let serial=0;
+  context.Utilities={getUuid:()=>`test-uuid-${++serial}`};
+  context.students_=()=>{throw new Error('An announcement request unexpectedly loaded master student records');};
+  try {
+    const item={kind:'Event',title:'Thesis Workshop',body:'Research methods workshop for thesis students',eventDate:'2026-11-16',location:'Annex 3',url:'https://www.bracu.ac.bd',pinned:true};
+    assert.throws(()=>run('faculty@bracu.ac.bd','saveAnnouncement',{...item,status:'published'}),/Not authorized/);
+    assert.throws(()=>run('first@g.bracu.ac.bd','saveAnnouncement',{...item,status:'published'}),/Not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','saveAnnouncement',{...item,url:'javascript:alert(1)',status:'published'}),/safe HTTPS/);
+    const saved=run('admin@bracu.ac.bd','saveAnnouncement',{...item,status:'draft'}).item;
+    assert.equal(saved.status,'draft');
+    assert.equal(context.request_({action:'publicAnnouncements'}).items.length,0);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','announcements').items.length,1);
+    run('admin@bracu.ac.bd','statusAnnouncement',{id:saved.id,status:'published'});
+    const publicItem=context.request_({action:'publicAnnouncements'}).items[0];
+    assert.equal(publicItem.title,'Thesis Workshop');
+    assert.equal(publicItem.pinned,true);
+    assert.equal(publicItem.author,undefined);
+    assert.equal(publicItem.status,undefined);
+    assert.equal(publicItem.row,undefined);
+    run('partha.bhoumik@bracu.ac.bd','statusAnnouncement',{id:saved.id,status:'archived'});
+    assert.equal(context.request_({action:'publicAnnouncements'}).items.length,0);
+  }finally{
+    context.SpreadsheetApp=previous.spreadsheet;context.LockService=previous.lock;context.CacheService=previous.cache;
+    context.Utilities=previous.util;context.students_=previous.students;
+    delete props.ANNOUNCEMENTS_SHEET_ID;
+  }
 });

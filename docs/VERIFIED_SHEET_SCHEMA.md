@@ -9,6 +9,7 @@ This is a **schema inspection**, not a live data connection. The connected Googl
 | `All student info` | `E` student email | `B` student ID, `C` name, `D` thesis/group ID |
 | `Group info` | `B` thesis/group ID | `C` type, `D` current level, `E:H` supervisor/co-supervisor names, `I` title |
 | `Marks` | `B` student ID | `C` thesis ID, `H` P1 (5), `I` P2 (10), `J:L` final defense parts (30 total), `M` supervisor (55), `N` penalty, `O` total, `P` grade point, `Q` grade, `R` final check |
+| `Faculty Details` | `F` official university email | `A` initial, `B` name, `C` designation, `D` employment status, `E` room, `F` email |
 
 The first data row in these master tabs contains numeric artifacts/placeholder values and must not be assumed to be a real student record. Validate ID formats and skip invalid entries.
 
@@ -46,6 +47,6 @@ Suggested normalized key: `(student_id, thesis_id, phase, semester, attempt_id, 
 
 - No Google OAuth client configuration, server-side session validation, or backend web-app deployment is installed yet.
 - Historical panel manager links for earlier/future semesters have not been registered.
-- The supervisor names in `Group info` are strings; a verified faculty **email mapping** is needed before supervisor-only row access can be enforced.
+- The `Faculty Details` tab provides the official faculty name/email/initial pairs. Supervisor assignments in `Group info` still require an exact trusted name match; unmatched or ambiguous variants must never be guessed for authorization.
 - Final release/approval rule and multi-judge comment policy must be confirmed; a numeric score alone is not proof of publication.
 - Do not make these workbooks public or put a Google Drive access token in client-side React code.

@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronRight, ClipboardList, Clock3, GraduationCap, LayoutDashboard, LockKeyhole, LogOut, Menu, Search, ShieldCheck, TableProperties, Users, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, CalendarDays, ChevronRight, ClipboardList, Clock3, Eye, GraduationCap, LayoutDashboard, LockKeyhole, LogOut, Megaphone, Menu, Search, ShieldCheck, TableProperties, Users, X } from 'lucide-react';
 import { GOOGLE_CLIENT_ID, liveRequest, type Session } from './live-api';
 import { PortalWelcome } from './PortalWelcome';
 import { DeadlineBoard } from './DeadlineBoard';
+import { deadlineEntries, resourceLinks } from './deadlines-data';
+import { PrimeFacultyList, PrimeOverview, PrimePreviewDialog, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
+import { AdminAnnouncements } from './Announcements';
 import type { Evaluation } from './data';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 
-type LivePage = 'dashboard' | 'evaluations' | 'students' | 'search' | 'deadlines' | 'sources' | 'admins' | 'profile';
+type LivePage = 'dashboard' | 'evaluations' | 'students' | 'search' | 'deadlines' | 'sources' | 'admins' | 'faculty' | 'announcements' | 'profile';
 type DirectoryRow = { student: {id:string;name:string;email:string;thesisId:string}; group: {id:string;title:string;type:string;stage:string;primarySupervisor:string;secondarySupervisor?:string} };
 type Detail = DirectoryRow & {members:Array<{id:string;name:string;email:string}>;marks:Record<string,number|string|null>;evaluations:Evaluation[]};
 type Completion = { students:number; groups:number };
@@ -75,51 +78,98 @@ function LiveSummary({token}:{token:string}) {
 function CircleHelpIcon(){return <ShieldCheck size={16}/>;}
 
 function LiveDeadlines({token}:{token:string}) {
-  const [rows,setRows]=useState<Deadline[]>([]),[error,setError]=useState('');
-  useEffect(()=>{liveRequest<{entries:Deadline[]}>(token,'deadlines').then(x=>setRows(x.entries)).catch(e=>setError(e.message));},[token]);
-  return <><div className="deadline-source-note"><Clock3 size={16}/><span>Entries are retrieved from the university's deadline sheet. Always verify year, timing and form availability before submitting.</span></div>{error&&<div className="live-error">{error}</div>}<DeadlineBoard entries={rows.map(r => ({ ...r, date: [r.day,r.date].filter(Boolean).join(' · ') }))}/></>;
+  const [rows,setRows]=useState<Deadline[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
+  useEffect(()=>{let active=true;setLoading(true);liveRequest<{entries:Deadline[]}>(token,'deadlines').then(x=>{if(active)setRows(x.entries);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token]);
+  const reference=!loading&&!rows.length;
+  return <><div className="deadline-source-note"><Clock3 size={16}/><span>Deadlines and links are taken from the university's source workbook. Verify dates and availability before submitting.</span></div>
+    {error&&<div className="live-error" role="alert">The live deadline source could not be loaded: {error}</div>}
+    {reference&&<div className="prime-deadline-status"><BookOpen size={17}/><span>Showing a clearly labeled reference snapshot from 5 November 2026 because the live feed has no available entries. Dates may be outdated.</span></div>}
+    {loading?<section className="card loading">Loading deadlines and academic resources…</section>:<DeadlineBoard entries={reference?deadlineEntries:rows.map(r=>({...r,date:[r.day,r.date].filter(Boolean).join(' · ')}))}/>}
+    <section className="prime-resources"><div className="sectionheading"><h3>Academic resources</h3><span>Reference documents and useful forms</span></div><div className="prime-resource-grid">{resourceLinks.map(item=><a href={item.url} target="_blank" rel="noopener noreferrer" key={item.title}><BookOpen size={18}/><span><b>{item.title}</b><small>{item.detail}</small></span><ArrowUpRight size={15}/></a>)}</div></section>
+  </>;
 }
 
-function LiveSources({token}:{token:string}) {
+function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
   const [sources,setSources]=useState<Source[]>([]),[releases,setReleases]=useState<Record<string,boolean>>({}),[semester,setSemester]=useState(''),[spreadsheetId,setSpreadsheetId]=useState(''),[phase,setPhase]=useState('P1'),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const refresh=()=>liveRequest<{sources:Source[];releases:Record<string,boolean>}>(token,'registry').then(x=>{setSources(x.sources);setReleases(x.releases);if(!semester&&x.sources[0])setSemester(x.sources[0].semester);}).catch(e=>setMessage(e.message));
   useEffect(()=>{refresh();},[token]);
   const act=async(action:string,payload:Record<string,unknown>)=>{setBusy(true);setMessage('');try{const value=await liveRequest<Record<string,unknown>>(token,action,payload);setMessage(action==='sync'?`Sync: ${JSON.stringify(value)}`:'Saved successfully.');refresh();}catch(e){setMessage(String(e instanceof Error?e.message:e));}finally{setBusy(false);}};
-  return <><section className="card admincard"><h3>Registered semester managers</h3><div className="source-live-list">{sources.map(s=><div key={s.semester}><b>{s.semester}</b><small>Spreadsheet ending …{s.spreadsheetId.slice(-6)}</small></div>)}</div><form className="addform" onSubmit={e=>{e.preventDefault();act('registerSemester',{semester:semester.trim(),spreadsheetId:spreadsheetId.trim()});}}><label>Register or update a semester source</label><div className="formrow"><input placeholder="Fall 2026" value={semester} onChange={e=>setSemester(e.target.value)} required/><input placeholder="Google spreadsheet ID" value={spreadsheetId} onChange={e=>setSpreadsheetId(e.target.value)} required/><button disabled={busy} className="primarybtn">Save source</button></div></form></section><section className="card admincard" style={{marginTop:16}}><h3>Feedback synchronization and publication</h3><p className="smallmuted">Choose a registered semester and phase. Sync evaluator sheets in batches. Publishing still hides any individual result without the required faculty comment.</p><div className="formrow"><select value={semester} onChange={e=>setSemester(e.target.value)}>{sources.map(s=><option key={s.semester}>{s.semester}</option>)}</select><select value={phase} onChange={e=>setPhase(e.target.value)}><option>P1</option><option>P2</option><option value="Defense">Defense</option></select><button className="lightbtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>act('sync',{semester,phase})}>Sync / continue</button><button className="primarybtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>act('release',{semester,phase,published:!releases[semester+'|'+phase]})}>{releases[semester+'|'+phase]?'Unpublish':'Publish'} {phase}</button></div><p className="smallmuted">Currently {releases[semester+'|'+phase]?'published':'unpublished'} for {semester} / {phase}.</p></section>{message&&<div className="infobar" role="status">{message}</div>}</>;
+  return <><section className="card admincard"><h3>Registered semester managers</h3><div className="source-live-list">{sources.map(s=><div key={s.semester}><b>{s.semester}</b><small>Spreadsheet ending …{s.spreadsheetId.slice(-6)}</small></div>)}</div>{!readOnly&&<form className="addform" onSubmit={e=>{e.preventDefault();act('registerSemester',{semester:semester.trim(),spreadsheetId:spreadsheetId.trim()});}}><label>Register or update a semester source</label><div className="formrow"><input placeholder="Fall 2026" value={semester} onChange={e=>setSemester(e.target.value)} required/><input placeholder="Google spreadsheet ID" value={spreadsheetId} onChange={e=>setSpreadsheetId(e.target.value)} required/><button disabled={busy} className="primarybtn">Save source</button></div></form>}</section><section className="card admincard" style={{marginTop:16}}><h3>Feedback synchronization and publication</h3><p className="smallmuted">{readOnly?'Read-only preview of publication status. Editing is disabled.':'Choose a registered semester and phase. Sync evaluator sheets in batches. Publishing still hides any individual result without the required faculty comment.'}</p><div className="formrow"><select value={semester} onChange={e=>setSemester(e.target.value)}>{sources.map(s=><option key={s.semester}>{s.semester}</option>)}</select><select value={phase} onChange={e=>setPhase(e.target.value)}><option>P1</option><option>P2</option><option value="Defense">Defense</option></select>{!readOnly&&<><button className="lightbtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>act('sync',{semester,phase})}>Sync / continue</button><button className="primarybtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>act('release',{semester,phase,published:!releases[semester+'|'+phase]})}>{releases[semester+'|'+phase]?'Unpublish':'Publish'} {phase}</button></>}</div><p className="smallmuted">Currently {releases[semester+'|'+phase]?'published':'unpublished'} for {semester} / {phase}.</p></section>{message&&<div className="infobar" role="status">{message}</div>}</>;
 }
 
 function LiveAdmins({token}:{token:string}) {
-  const [admins,setAdmins]=useState<string[]>([]),[email,setEmail]=useState(''),[facultyEmail,setFacultyEmail]=useState(''),[facultyName,setFacultyName]=useState(''),[initial,setInitial]=useState(''),[message,setMessage]=useState('');
+  const [admins,setAdmins]=useState<string[]>([]),[email,setEmail]=useState(''),[message,setMessage]=useState('');
   const load=()=>liveRequest<{admins:string[]}>(token,'admins').then(x=>setAdmins(x.admins)).catch(e=>setMessage(e.message));
   useEffect(()=>{load();},[token]);
   const act=async(action:string,payload:Record<string,unknown>)=>{try{const result=await liveRequest<{admins?:string[]}>(token,action,payload);if(result.admins)setAdmins(result.admins);setMessage('Change saved.');}catch(e){setMessage(String(e instanceof Error?e.message:e));}};
-  return <><section className="card admincard"><h3>Administrators</h3><div className="adminrow"><div><b>partha.bhoumik@bracu.ac.bd</b><small>Protected Prime Administrator</small></div><span className="pill green">Root</span></div>{admins.map(name=><div className="adminrow" key={name}><b>{name}</b><button className="lightbtn" onClick={()=>act('removeAdmin',{email:name})}>Revoke</button></div>)}<form className="addform" onSubmit={e=>{e.preventDefault();act('addAdmin',{email});setEmail('');}}><label>Add administrator (Prime Administrator only)</label><div className="formrow"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button className="primarybtn">Grant access</button></div></form></section><section className="card admincard" style={{marginTop:16}}><h3>Supervisor email mapping</h3><p className="smallmuted">The permanent master stores faculty names, not their Google email or official initials. Match each faculty email to the exact displayed supervisor name before enabling supervisor access.</p><form className="addform" onSubmit={e=>{e.preventDefault();act('setFaculty',{email:facultyEmail,name:facultyName,initial});}}><div className="formrow"><input type="email" placeholder="faculty@bracu.ac.bd" value={facultyEmail} onChange={e=>setFacultyEmail(e.target.value)} required/><input placeholder="Exact master-sheet faculty name" value={facultyName} onChange={e=>setFacultyName(e.target.value)} required/><input placeholder="Initial" value={initial} onChange={e=>setInitial(e.target.value)} required/><button className="primarybtn">Save mapping</button></div></form></section><LiveStudentAliases token={token}/>{message&&<div className="infobar" role="status">{message}</div>}</>;
-}
-
-function LiveStudentAliases({token}:{token:string}) {
-  const [aliases,setAliases]=useState<Record<string,string>>({});
-  const [email,setEmail]=useState(''),[studentId,setStudentId]=useState(''),[message,setMessage]=useState('');
-  useEffect(()=>{liveRequest<{aliases:Record<string,string>}>(token,'aliases').then(x=>setAliases(x.aliases)).catch(e=>setMessage(e.message));},[token]);
-  const action=async(name:'setAlias'|'removeAlias',values:Record<string,string>)=>{
-    try{const result=await liveRequest<{aliases:Record<string,string>}>(token,name,values);setAliases(result.aliases);setMessage('Mapping saved.');}
-    catch(e){setMessage(e instanceof Error?e.message:String(e));}
-  };
-  return <section className="card admincard" style={{marginTop:16}}><h3>Student Google account mapping</h3>
-    <p className="smallmuted">For students whose master record contains a personal email, link their verified university account to their student ID. Only the Prime Administrator can edit these mappings.</p>
-    {Object.entries(aliases).map(([address,id])=><div className="adminrow" key={address}><div><b>{address}</b><small>Student ID: {id}</small></div><button className="lightbtn" onClick={()=>action('removeAlias',{email:address})}>Remove</button></div>)}
-    <form className="addform" onSubmit={e=>{e.preventDefault();action('setAlias',{email,studentId});}}><label>Connect a university email to a student ID</label><div className="formrow"><input type="email" placeholder="student@g.bracu.ac.bd" value={email} onChange={e=>setEmail(e.target.value)} required/><input placeholder="8-digit student ID" maxLength={8} value={studentId} onChange={e=>setStudentId(e.target.value)} required/><button className="primarybtn">Save mapping</button></div></form>
-    {message&&<div className="infobar" role="status">{message}</div>}
-  </section>;
+  return <><section className="card admincard"><h3>Administrator access</h3><p className="smallmuted">Only the Prime Administrator can grant or revoke regular administrative access. Faculty records are managed automatically in Faculty List.</p><div className="adminrow"><div><b>partha.bhoumik@bracu.ac.bd</b><small>Protected Prime Administrator</small></div><span className="pill green">Prime</span></div>{admins.map(name=><div className="adminrow" key={name}><b>{name}</b><button className="lightbtn" onClick={()=>act('removeAdmin',{email:name})}>Revoke</button></div>)}<form className="addform" onSubmit={e=>{e.preventDefault();act('addAdmin',{email});setEmail('');}}><label>Add regular administrator</label><div className="formrow"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button className="primarybtn">Grant access</button></div></form></section>{message&&<div className="infobar" role="status">{message}</div>}</>;
 }
 
 export default function LivePortal() {
-  const [token,setToken]=useState(''),[session,setSession]=useState<Session|null>(null),[page,setPage]=useState<LivePage>('dashboard'),[drawer,setDrawer]=useState(false),[data,setData]=useState<StudentDashboard|SupervisorDashboard|null>(null),[error,setError]=useState('');
-  const login=async(idToken:string)=>{const verified=await liveRequest<Session>(idToken,'session');setToken(idToken);setSession(verified);setPage('dashboard');setError('');};
-  const logout=()=>{window.google?.accounts?.id.disableAutoSelect();setToken('');setSession(null);setData(null);setPage('dashboard');};
-  const role=session?.role;
-  const nav=useMemo(()=>role==='student'?[['dashboard','Dashboard',LayoutDashboard],['evaluations','My Evaluations',ClipboardList],['deadlines','Deadlines & Links',CalendarDays],['profile','Profile',Users]]:role==='supervisor'?[['dashboard','My Students',Users],['deadlines','Deadlines & Links',CalendarDays],['profile','Profile',Users]]:([['dashboard','Overview',LayoutDashboard],['search','Student Search',Search],['sources','Semester Sources',TableProperties],['deadlines','Deadlines & Links',CalendarDays],...(role==='prime_admin'?[['admins','Administrators',ShieldCheck]]:[]),['profile','Profile',Users]]),[role]);
-  useEffect(()=>{if(!session||!token)return;const action=session.role==='student'?'student':session.role==='supervisor'?'supervisor':null;if(!action)return;liveRequest<StudentDashboard|SupervisorDashboard>(token,action).then(setData).catch(e=>setError(e.message));},[session,token]);
+  const [token,setToken]=useState('');
+  const [session,setSession]=useState<Session|null>(null);
+  const [page,setPage]=useState<LivePage>('dashboard');
+  const [drawer,setDrawer]=useState(false);
+  const [data,setData]=useState<StudentDashboard|SupervisorDashboard|null>(null);
+  const [preview,setPreview]=useState<RolePreview|null>(null);
+  const [previewDialog,setPreviewDialog]=useState(false);
+  const [error,setError]=useState('');
+  const login=async(idToken:string)=>{
+    const verified=await liveRequest<Session>(idToken,'session');
+    setToken(idToken);setSession(verified);setPreview(null);setPage('dashboard');setError('');
+  };
+  const logout=()=>{
+    window.google?.accounts?.id.disableAutoSelect();setToken('');setSession(null);
+    setData(null);setPreview(null);setPreviewDialog(false);setPage('dashboard');
+  };
+  const role=preview?.role||session?.role;
+  const actualPrime=session?.role==='prime_admin';
+  const showPrimeControls=actualPrime&&!preview;
+  const nav=useMemo(()=>role==='student'?
+    [['dashboard','Dashboard',LayoutDashboard],['evaluations','My Evaluations',ClipboardList],['deadlines','Deadlines & Links',CalendarDays],['profile','Profile',Users]]:
+    role==='supervisor'?
+      [['dashboard','My Students',Users],['deadlines','Deadlines & Links',CalendarDays],['profile','Profile',Users]]:
+      [['dashboard','Overview',LayoutDashboard],['search','Student Search',Search],['sources','Semester Sources',TableProperties],['deadlines','Deadlines & Links',CalendarDays],['announcements','News & Events',Megaphone],
+        ...(showPrimeControls?[['faculty','Faculty List',Users],['admins','Administrators',ShieldCheck]]:[]),['profile','Profile',Users]],
+    [role,showPrimeControls]);
+  useEffect(()=>{
+    if(!session||!token)return;
+    const action=session.role==='student'?'student':session.role==='supervisor'?'supervisor':null;
+    if(!action)return;
+    let active=true;
+    liveRequest<StudentDashboard|SupervisorDashboard>(token,action).then(result=>{if(active)setData(result);}).catch(e=>{if(active)setError(e.message);});
+    return()=>{active=false;};
+  },[session,token]);
   if(!session)return <LiveLogin onToken={login}/>;
-  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My students':'Evaluation overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines & links',sources:'Semester sources',admins:'Administrator management',profile:'My profile'})[page];
-  return <div className="application"><aside className={`sidebar ${drawer?'open':''}`}><div className="brand"><span className="brand-symbol">B</span><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div><div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{setPage(key as LivePage);setDrawer(false);}}>{<Icon size={17}/>} {label as string}</button>)}</nav></div><div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>Read-only student records</small></span></div></aside>{drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}<div className="main"><header className="topbar"><button className="menuicon" aria-label="Open menu" onClick={()=>setDrawer(true)}><Menu size={22}/></button><span className="breadcrumbs">Academic Portal <ChevronRight size={13}/> {heading}</span><div className="topright"><span className="live-role">{role?.replace('_',' ')}</span><span className="avatar">{session.email.substring(0,2).toUpperCase()}</span></div></header><main className="content"><div className="pageheading"><div><span className="eyebrow">{role?.replace('_',' ').toUpperCase()}</span><h1>{heading}</h1><p>{session.email}</p></div><button className="lightbtn live-logout" onClick={logout}><LogOut size={15}/> Sign out</button></div>{error&&<div className="live-error" role="alert">{error} <button className="lightbtn" onClick={logout}>Sign in again</button></div>}{page==='profile'?<section className="card profilecard"><div className="eyebrow">VERIFIED GOOGLE WORKSPACE ACCOUNT</div><h2>{session.name}</h2><p>{session.email}</p><p>Role: {role}</p></section>:page==='deadlines'?<LiveDeadlines token={token}/>:role==='student'?data?<LiveStudent data={data as StudentDashboard} page={page}/>:<section className="card loading">Loading your thesis details…</section>:role==='supervisor'?data?<LiveSupervisor data={data as SupervisorDashboard}/>:<section className="card loading">Loading assigned groups…</section>:page==='dashboard'?<LiveSummary token={token}/>:page==='search'?<LiveSearch token={token}/>:page==='sources'?<LiveSources token={token}/>:page==='admins'&&role==='prime_admin'?<LiveAdmins token={token}/>:null}<footer className="footer"><GraduationCap size={16}/> BRAC University Thesis Evaluation Portal<span>Authorized access only</span></footer></main></div></div>;
+  const displayData=preview?preview.data:data;
+  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My students':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines & links',sources:'Semester sources',admins:'Administrator management',faculty:'Faculty list',announcements:'News & events',profile:'My profile'})[page];
+  const exitPreview=()=>{setPreview(null);setPage('dashboard');setError('');};
+  return <div className="application">
+    <aside className={`sidebar ${drawer?'open':''}`}>
+      <div className="brand"><span className="brand-symbol">B</span><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
+      <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{setPage(key as LivePage);setDrawer(false);}}><Icon size={17}/>{label as string}</button>)}</nav></div>
+      <div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Prime Admin support preview':'Role-restricted access'}</small></span></div>
+    </aside>
+    {drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}
+    <div className="main">
+      <header className="topbar"><button className="menuicon" aria-label="Open menu" onClick={()=>setDrawer(true)}><Menu size={22}/></button><span className="breadcrumbs">Academic Portal <ChevronRight size={13}/>{heading}</span><div className="topright"><span className="live-role">{role?.replace('_',' ')}</span><span className="avatar">{session.email.substring(0,2).toUpperCase()}</span></div></header>
+      <main className="content">
+        {preview&&<div className="prime-preview-banner" role="status"><div><Eye size={18}/><span><strong>Read-only role preview · {role?.replace('_',' ')}</strong><small>{preview.email} · You remain signed in as {session.email}</small></span></div><button onClick={exitPreview}>Exit preview</button></div>}
+        <div className="pageheading"><div><span className="eyebrow">{role?.replace('_',' ').toUpperCase()}{preview?' · PREVIEW':''}</span><h1>{heading}</h1><p>{preview?`Viewing ${preview.email} · Read-only`:session.email}</p></div><div className="prime-heading-actions">{showPrimeControls&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> View as another role</button>}{preview&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> Change preview</button>}<button className="lightbtn live-logout" onClick={logout}><LogOut size={15}/> Sign out</button></div></div>
+        {error&&<div className="live-error" role="alert">{error} <button className="lightbtn" onClick={logout}>Sign in again</button></div>}
+        {page==='profile'?<section className="card profilecard"><div className="eyebrow">{preview?'ADMINISTRATIVE PREVIEW':'VERIFIED GOOGLE WORKSPACE ACCOUNT'}</div><h2>{preview?preview.email:session.name}</h2><p>{preview?'Read-only view; not a separate Google login':session.email}</p><p>Role: {role}</p></section>:
+          page==='deadlines'?<LiveDeadlines token={token}/>:
+          role==='student'?displayData?<LiveStudent data={displayData as StudentDashboard} page={page}/>:<section className="card loading">Loading student details…</section>:
+          role==='supervisor'?displayData?<LiveSupervisor data={displayData as SupervisorDashboard}/>:<section className="card loading">Loading assigned groups…</section>:
+          page==='dashboard'?(showPrimeControls?<PrimeOverview token={token} onNavigate={setPage}/>:<LiveSummary token={token}/>):
+          page==='search'?(showPrimeControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
+          page==='sources'?<LiveSources token={token} readOnly={!!preview}/>:
+          page==='announcements'?<AdminAnnouncements token={token} readOnly={!!preview}/>:
+          page==='faculty'&&showPrimeControls?<PrimeFacultyList token={token}/>:
+          page==='admins'&&showPrimeControls?<LiveAdmins token={token}/>:null}
+        <footer className="footer"><GraduationCap size={16}/> BRAC University Thesis Evaluation Portal<span>Authorized access only</span></footer>
+      </main>
+    </div>
+    {previewDialog&&actualPrime&&<PrimePreviewDialog token={token} onClose={()=>setPreviewDialog(false)} onStart={result=>{setPreview(result);setPage('dashboard');setError('');}}/>}
+  </div>;
 }

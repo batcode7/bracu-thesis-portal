@@ -1,6 +1,6 @@
 # BRAC University Thesis Evaluation Portal
 
-React + TypeScript + Vite foundation, using a restrained academic UI. The deployed preview is a **demo-data build**, not a live university service. It now opens on a sign-in design; **Explore interface preview** is a separate, explicitly fictional walkthrough. The production Pages build opens on the same sign-in design but uses real Google Workspace authentication and server-side access control when configured.
+React + TypeScript + Vite foundation, using a restrained academic UI. This repository supports both an explicitly fictional `demo` mode and a `live` Google Workspace mode. The live Cloudflare Pages build uses authenticated Pages Functions and an owner-executed Google Apps Script gateway; demo data is not used for live student records.
 
 ## Run locally
 
@@ -15,7 +15,7 @@ For production static build:
 npm run build
 ```
 
-The compiled site is in `dist/`. The deployment currently points to the private Sites project.
+The compiled site is in `dist/`.
 
 To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`docs/DEPLOY_PAGES_GITHUB.md`](docs/DEPLOY_PAGES_GITHUB.md)**. The same Pages project serves the React frontend and authenticated `/v1/*` Pages Functions. Your existing Google Apps Script deployment remains the private data gateway. Keep the preview in `VITE_PORTAL_MODE=demo` until the backend, OAuth origins, and authorized Google identities have been tested. Detailed data integration is documented in [`backend/README.md`](backend/README.md).
 
@@ -30,8 +30,10 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 - Verified master/semester source cards and an expandable mapping view for the Summer 2026 reviewer-sheet structure.
 - Typed data models and `PortalApi` contract in `src/portal-api.ts`.
 - All academic records and evaluation comments are fictional.
-- Implemented a separate **live-mode** Google Identity Services sign-in, authenticated student and supervisor pages, administrator search/statistics, phase-comment synchronization controls, mapping tools, and private Apps Script data gateway. None of this accesses live student data in the deployed preview until credentials and services are configured.
-- No official supervisor-initial directory has been linked. The current sample initials (AK, AR, NH, SN, MI) are fictional. A production version must use a faculty directory or verified mapping rather than guessing initials from names.
+- Implemented a separate **live-mode** Google Identity Services sign-in, authenticated student and supervisor pages, administrator search/statistics, phase-comment synchronization controls, and a private Apps Script gateway.
+- The updated live Prime Admin area has actual master-level overview metrics, a complete four-person supervision display, faculty directory, useful deadline fallback, animated lookups, and a role-restricted read-only View As feature. See [`docs/PRIME_ADMIN_UPGRADE.md`](docs/PRIME_ADMIN_UPGRADE.md) for the rollout sequence.
+- The official `Faculty Details` directory in the permanent master provides initials, names, designations, status, rooms and university email addresses. No faculty email needs to be guessed from a name.
+- The live landing page includes a public **News & events** section. Regular and Prime Administrators can create and publish announcements in the **News & Events** editor, with drafts, featured notices, archives and links. It uses a separate private Google spreadsheet, not the student master. See [`docs/NEWS_AND_EVENTS.md`](docs/NEWS_AND_EVENTS.md) for setup and publishing.
 
 ## Intended real data mapping
 
@@ -42,6 +44,7 @@ Permanent **Thesis Master** Google Sheet:
 | `All student info` | Verified Google email → student | B: Student ID; C: Name; D: ThesisID; E: Email |
 | `Group info` | ThesisID → group | B: ThesisID; C: Type; D: Current Level; E–H: Supervisors; I: Title |
 | `Marks` | Student ID → marks | H: P1; I: P2; J–L: Panel; M: Supervisor; N: Penalty; O: Total; P: Grade point; Q: Letter grade; R: Final Check |
+| `Faculty Details` | Verified university email → faculty | A: Initial; B: Name; C: Designation; D: Status; E: Room; F: Email |
 
 Semester-wise panel managers link to **individual judge spreadsheets** where comments actually live. See [`docs/VERIFIED_SHEET_SCHEMA.md`](docs/VERIFIED_SHEET_SCHEMA.md) for the observed table layout, exact phase/comment columns, inheritance of group IDs, formula errors in the consolidated manager marks tab, and historical lookup design. A permanent registry must keep all old semester spreadsheet IDs. A student's P1, P2, and defense records may come from three different semesters. Use a student + phase + attempt/semester index; never replace an archived manager ID.
 
@@ -58,4 +61,4 @@ Semester-wise panel managers link to **individual judge spreadsheets** where com
 9. Link the source sheet's `Deadlines and Links` tab to an authenticated, read-only server API and preserve hyperlink metadata. Its current date labels omit the year and its deadlines are marked expired. Do not claim a new active deadline from these values.
 10. Semester completion statistics must be calculated from verified outcome records, not inferred from current `Group info!D` stage, which has no event timestamps. Count unique students/groups per semester and phase; do not sum phase counts to obtain unique totals.
 
-The role switcher and administrator form are explicitly development-only and must be removed or gated out before the app handles actual student data.
+The demo role switcher remains a fictional walkthrough. The live Prime Admin **View As** feature is different: it requires an authenticated Prime Administrator at the backend, retrieves role-scoped data in read-only mode, and is unavailable to regular administrators. It should still undergo university privacy/security review before broad deployment.

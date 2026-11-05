@@ -30,6 +30,10 @@ globalThis.fetch = async (url,options) => {
   if(target.includes('script.google.com')){
     const body=JSON.parse(options.body);
     assert.equal(body.secret, env.BRIDGE_SECRET);
+    if(body.action==='publicAnnouncements'){
+      assert.equal(body.principal.email,'');
+      return Response.json({ok:true,data:{items:[{id:'notice-1',kind:'Notice',title:'Official notice',body:'Public announcement text',status:undefined}]}});
+    }
     assert.equal(body.principal.email,'student@g.bracu.ac.bd');
     assert.equal(body.principal.role,undefined);
     return Response.json({ok:true,data:{role:'student',email:body.principal.email}});
@@ -64,5 +68,14 @@ test('blocks unapproved origins and unauthenticated requests',async()=>{
 test('refuses an unconfigured bridge',async()=>{
   const response=await portalWorker.fetch(request(await sign()),{...env,BRIDGE_SECRET:''});
   assert.equal(response.status,503);
+});
+test('public announcements load without login while announcement editing requires a verified token',async()=>{
+  const feed=await portalWorker.fetch(new Request('https://api.example.net/v1/announcements'),env);
+  assert.equal(feed.status,200);
+  const decoded=await feed.json();
+  assert.equal(decoded.data.items[0].title,'Official notice');
+  assert.match(feed.headers.get('cache-control'),/public/);
+  const writeRequest=new Request('https://api.example.net/v1/saveAnnouncement',{method:'POST',headers:{origin:env.APP_ORIGIN,'content-type':'application/json'},body:JSON.stringify({title:'Forged'})});
+  assert.equal((await portalWorker.fetch(writeRequest,env)).status,401);
 });
 test.after(()=>{globalThis.fetch=mockFetch;});

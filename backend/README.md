@@ -6,9 +6,9 @@ This folder contains the server-side implementation for Google Workspace sign-in
 
 1. **React/Vite frontend:** Google Identity Services obtains a short-lived Google ID token. The frontend never reads a Sheet directly and never determines its own role.
 2. **Cloudflare Pages Function** (`../functions/v1/[action].js`, using `api/handler.mjs`): verifies Google's RSA signature and the token's issuer, audience, expiry, verified email, and Workspace hosted domain. Only a verified email/sub is passed onward. The API has the same origin as the frontend.
-3. **Google Apps Script** (`apps-script/Code.gs`): reads the master and deadline Google Sheets using its owner's existing access. Every action checks the verified email against a trusted server-side role. It also maintains a **private, separate** indexed copy of semester evaluation comments.
+3. **Google Apps Script** (`apps-script/Code.gs`): reads the master and deadline Google Sheets using its owner's existing access. Every authenticated action checks the verified email against a trusted server-side role. Faculty identities are sourced from the master's `Faculty Details` tab (A:F). It also maintains a **private, separate** indexed copy of semester evaluation comments and a separate public-announcement store.
 
-No source Sheet is modified by this code. Only the separately created comments index is written.
+No source Sheet is modified by this code. Only the separately created comments index and announcements spreadsheet are written.
 
 ## 1. Set up university Google OAuth
 
@@ -53,7 +53,8 @@ Do not place `BRIDGE_SECRET` in source files, GitHub, build logs or any `VITE_` 
 ## 5. Initial academic configuration
 
 1. Sign in as `partha.bhoumik@bracu.ac.bd`. This account is the **only hard-coded Prime Administrator**; no API route can create another prime administrator.
-2. Under **Administrators**, add admin emails, supervisor email/name/initial mappings, and student Google Workspace email → student ID mappings where the master has personal addresses.
+2. Under **Administrators**, add regular admin emails. The new **Faculty List** automatically sources initials, names, designations, status, room and email from `Thesis Master` → `Faculty Details`. Run `installFacultyDirectorySync` once as the Apps Script owner to install its six-hour refresh trigger. The page also refreshes a stale snapshot when opened.
+   Use **News & Events** to create public landing-page notices. This automatically creates private announcement storage the first time a notice is saved; no extra spreadsheet setup or Cloudflare variable is needed. See [`../docs/NEWS_AND_EVENTS.md`](../docs/NEWS_AND_EVENTS.md). When upgrading an existing portal, redeploy a new version of this Apps Script before publishing the new GitHub build.
 3. Under **Semester Sources**, register each semester's panel-manager Spreadsheet ID. Historical IDs remain in the registry, and the API prevents an existing semester's source from being overwritten.
 4. For each semester and phase, use **Sync / continue** until the API reports `complete: true`. Apps Script processes up to 8 evaluator workbooks per invocation to fit its execution limits.
 5. If one or more judge Sheets are inaccessible, grant the Apps Script owner access and select **Restart sync** before retrying. Incomplete/failed staged snapshots never replace the last complete index.
@@ -69,6 +70,15 @@ The prototype currently assumes one official score in `Marks` for each phase per
 ### Administrator summary semantics
 
 Counts are **unique students and unique groups with released, synchronized, marked-and-commented evaluator records** for each semester and phase. These are not counts of all enrolled students in a semester (the source tables do not define enrollment by semester). The source manager's `P1_Marks` tab is not used; it contains formula errors in the inspected workbook.
+
+The refreshed **Prime Admin Overview** also displays global master-level totals (validated students, research groups, and recorded phase marks). These are labeled separately and must not be interpreted as semester-specific enrollments or published results.
+
+### Prime Admin read-only role preview
+
+- Only the verified Prime Administrator can call `preview` to inspect the student, supervisor, or ordinary admin experience. The endpoint enforces this on Apps Script as well as in the interface.
+- Student/faculty previews resolve an actual matching university email against the trusted master/directory. They cannot set their own role or submit an arbitrary student ID to gain access.
+- Role preview preserves the Prime Administrator's original identity and displays an exit banner. There are no write controls in the ordinary admin preview. This feature is for administrative support, **not** an alternative sign-in mechanism.
+- The old student-email alias mappings, if any, remain enforced server-side. Because `All student info` contains only one email column, a student with a personal email in that column cannot be matched to an unrelated university account automatically. Obtain an authoritative university-email roster before replacing that rule; do not infer identity from names.
 
 ## 6. Verification before giving students access
 

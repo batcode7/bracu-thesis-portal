@@ -10,6 +10,7 @@ var DEFAULT_MASTER_ID = '1Zx2ZJoFTHl8VVIxHklX6EXUVzTJuY1xwg3zVDSfclqU';
 var DEFAULT_DEADLINES_ID = '1SkyO77YFde-N4bpxQ5lb07FH24hFINyR4JBgD47Xamk';
 var DEFAULT_SOURCES = [{ semester: 'Summer 2026', spreadsheetId: '1Z882cDXwrQwuMgbSFF3CQmqyWXuAXq8U3Thn7569QTU' }];
 var COMMENT_HEADERS = ['Semester','Phase','ThesisID','MemberKey','Score','Comment','Evaluator','SourceID','SyncedAt'];
+var ANNOUNCEMENT_HEADERS = ['ID','Kind','Title','Body','EventDate','Location','URL','Pinned','Status','CreatedAt','UpdatedAt','Author'];
 var PHASE_INFO = {
   P1: { managerTab: 'P1_Panel', evaluatorTab: 'MarkSheet', first: 4, group: 3, member: 6, mark: 10, comment: 11, max: 5 },
   P2: { managerTab: 'P2_Panel', evaluatorTab: 'MarkSheet', first: 5, group: 3, member: 8, mark: 13, comment: 14, max: 10 },
@@ -66,7 +67,72 @@ function marks_() {
   }); return result;
 }
 function sourceRegistry_() { return jsonProp_('SEMESTER_SOURCES_JSON', DEFAULT_SOURCES); }
-function facultyDirectory_() { return jsonProp_('FACULTY_DIRECTORY_JSON', []); }
+// Thesis Master → Faculty Details is the authoritative faculty directory:
+// A initial, B name, C designation, D employment status, E room, F email.
+// Snapshot it privately; ordinary sign-in and search never rescan the sheet.
+function autoFaculty_() {
+  // One PropertiesService read is materially faster than one read per chunk.
+  var properties=scriptProps_().getProperties(),count=Number(properties.FACULTY_AUTO_PARTS||'0'),parts=[];
+  if(!Number.isInteger(count)||count<1||count>100)return [];
+  for(var i=0;i<count;i++){var part=properties['FACULTY_AUTO_'+i];if(!part)return [];parts.push(part);}
+  try { var parsed=JSON.parse(parts.join(''));return Array.isArray(parsed)?parsed:[]; } catch(_){return [];}
+}
+function storeAutoFaculty_(items) {
+  var properties=scriptProps_(),previous=Number(prop_('FACULTY_AUTO_PARTS','0'))||0;
+  var raw=JSON.stringify(items),parts=[];
+  for(var i=0;i<raw.length;i+=3000)parts.push(raw.slice(i,i+3000));
+  for(var j=0;j<parts.length;j++)properties.setProperty('FACULTY_AUTO_'+j,parts[j]);
+  for(var k=parts.length;k<previous;k++)properties.deleteProperty('FACULTY_AUTO_'+k);
+  properties.setProperty('FACULTY_AUTO_PARTS',String(parts.length));
+  properties.setProperty('FACULTY_AUTO_UPDATED',new Date().toISOString());
+}
+function facultyDirectory_() {
+  var byEmail={};
+  autoFaculty_().concat(jsonProp_('FACULTY_DIRECTORY_JSON',[])).forEach(function(f){
+    var email=norm_(f.email);if(!validBracEmail_(email)||email.indexOf('@g.')>=0)return;
+    if(!byEmail[email])byEmail[email]={email:email,names:[],initial:String(f.initial||'').trim(),designation:f.designation||'',status:f.status||'',room:f.room||''};
+    (f.names||[]).forEach(function(name){name=String(name||'').trim();if(name&&!byEmail[email].names.some(function(n){return norm_(n)===norm_(name);}))byEmail[email].names.push(name);});
+    if(!byEmail[email].initial&&f.initial)byEmail[email].initial=String(f.initial);
+  });
+  return Object.keys(byEmail).sort().map(function(email){return byEmail[email];});
+}
+function refreshFacultyDirectory_(force) {
+  var updated=Date.parse(prop_('FACULTY_AUTO_UPDATED',''))||0;
+  var cached=autoFaculty_();
+  if(!force && cached.length && Date.now()-updated<6*60*60*1000)return cached;
+  var book=SpreadsheetApp.openById(masterId_()),sheet=book.getSheetByName('Faculty Details');
+  assert_(sheet,'Faculty Details tab is missing');
+  var rows=sheet.getLastRow()>1?sheet.getRange(1,1,sheet.getLastRow(),6).getDisplayValues():[];
+  assert_(rows.length && norm_(rows[0][0])==='initial' && norm_(rows[0][1])==='name' && norm_(rows[0][5])==='email','Faculty directory headers have changed');
+  var records={};
+  rows.slice(1).forEach(function(r){
+    var name=String(r[1]||'').trim(),email=norm_(r[5]);
+    if(!name||!validBracEmail_(email)||email.indexOf('@g.')>=0)return;
+    if(!records[email])records[email]={email:email,names:[],initial:String(r[0]||'').trim().toUpperCase(),designation:String(r[2]||'').trim(),status:String(r[3]||'').trim(),room:String(r[4]||'').trim()};
+    if(!records[email].names.some(function(n){return norm_(n)===norm_(name);}))records[email].names.push(name);
+  });
+  var items=Object.keys(records).sort().map(function(email){return records[email];});
+  storeAutoFaculty_(items);return items;
+}
+// Run once as the Apps Script owner after deploying a new version. Afterwards
+// the faculty snapshot refreshes automatically, without maintaining mappings.
+function installFacultyDirectorySync() {
+  ScriptApp.getProjectTriggers().filter(function(t){return t.getHandlerFunction()==='refreshFacultyDirectoryScheduled_';}).forEach(function(t){ScriptApp.deleteTrigger(t);});
+  ScriptApp.newTrigger('refreshFacultyDirectoryScheduled_').timeBased().everyHours(6).create();
+  return refreshFacultyDirectory_(true).length;
+}
+function refreshFacultyDirectoryScheduled_() { refreshFacultyDirectory_(true); }
+function facultyList_(groupRows) {
+  var faculty=facultyDirectory_(),used={};
+  var rows=faculty.map(function(f){
+    var count=groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(name){return f.names.some(function(n){return norm_(n)===norm_(name)&&!!norm_(n);});});}).length;
+    f.names.forEach(function(name){used[norm_(name)]=true;});
+    return {name:f.names[0]||f.email,email:f.email,initial:f.initial||'',designation:f.designation||'',status:f.status||'',room:f.room||'',aliases:f.names.slice(1),groups:count,source:'Faculty Details'};
+  });
+  var missing={};groupRows.forEach(function(g){[g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].forEach(function(name){name=String(name||'').trim();if(name&&!used[norm_(name)])missing[norm_(name)]=name;});});
+  Object.keys(missing).sort().forEach(function(key){rows.push({name:missing[key],email:'',initial:'',designation:'',status:'',room:'',aliases:[],groups:groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(n){return norm_(n)===key;});}).length,source:'Group info · not matched'});});
+  return rows.sort(function(a,b){return a.name.localeCompare(b.name);});
+}
 function adminEmails_() { return jsonProp_('ADMIN_EMAILS_JSON', []); }
 function role_(email, studentRows) {
   if (root_(email)) return 'prime_admin';
@@ -76,6 +142,11 @@ function role_(email, studentRows) {
   return null;
 }
 function permission_(role, needed) { assert_(needed.indexOf(role) !== -1, 'Not authorized for this action'); }
+function auditPreview_(actor,role,target) {
+  var events=jsonProp_('PRIME_PREVIEW_AUDIT_JSON',[]);
+  events.push({at:new Date().toISOString(),actor:actor,role:role,target:target});
+  setJsonProp_('PRIME_PREVIEW_AUDIT_JSON',events.slice(-24));
+}
 function facultyGroups_(email, groupRows) {
   var faculty = facultyDirectory_().filter(function(f){return norm_(f.email) === email;})[0];
   if (!faculty) return [];
@@ -147,15 +218,28 @@ function deadlineLinks_() {
   var sheet = SpreadsheetApp.openById(prop_('DEADLINE_SHEET_ID',DEFAULT_DEADLINES_ID)).getSheetByName('Deadlines and Links');
   assert_(sheet,'Deadline tab missing');var last=sheet.getLastRow();if(last<2)return [];
   var range=sheet.getRange(2,1,last-1,6),rows=range.getDisplayValues(),rich=range.getRichTextValues(),lastStage='',result=[];
+  function stage_(label) {
+    var name=norm_(label);
+    if(/early/.test(name)&&/(defen|final)/.test(name))return 'Early Defense';
+    if(/pre[\s-]*thesis[\s-]*1|pre[\s-]*1\b/.test(name))return 'P1';
+    if(/pre[\s-]*thesis[\s-]*2|pre[\s-]*2\b/.test(name))return 'P2';
+    if(/final\s*(thesis|defense)|\bdefen/.test(name))return 'Defense';
+    return 'General';
+  }
+  function linked_(value) {
+    if(!value)return '';
+    var direct=value.getLinkUrl();if(direct)return direct;
+    return (value.getRuns()||[]).map(function(run){return run.getLinkUrl();}).filter(Boolean)[0]||'';
+  }
   rows.forEach(function(r,i){
     if(r[0])lastStage=r[0];if(!r[1])return;
-    var link=(rich[i][5]&&rich[i][5].getLinkUrl())||(rich[i][2]&&rich[i][2].getLinkUrl())||'';
+    var link=linked_(rich[i][5])||linked_(rich[i][2])||'';
     if(link && !/^https:\/\//i.test(link))link='';
-    result.push({id:String(i+2),phase:lastStage,title:r[1],day:r[2],date:r[3],status:r[4]||'Reference',action:r[5]||r[2]||'View',url:link});
+    result.push({id:String(i+2),phase:stage_(lastStage),title:r[1],day:r[2],date:r[3],status:r[4]||'Reference',action:r[5]||r[2]||'View',url:link});
   });return result;
 }
-function summary_(studentRows) {
-  var released=releases_(),rows=comments_(),keyMap={},semesterMap={},byStudent={},lookups={},allMarks=marks_();
+function summary_(studentRows,providedMarks,providedComments,providedReleases) {
+  var released=providedReleases||releases_(),rows=providedComments||comments_(),keyMap={},semesterMap={},byStudent={},lookups={},allMarks=providedMarks||marks_();
   studentRows.forEach(function(s){
     [s.id,s.email].concat(s.aliases).forEach(function(member){if(member)lookups[s.thesisId+'|'+norm_(member)]=s.id;});
   });
@@ -180,6 +264,15 @@ function summary_(studentRows) {
     var semester=semesterMap[source.semester],obj={semester:source.semester,students:semester?Object.keys(semester.students).length:0,groups:semester?Object.keys(semester.groups).length:0};
     ['P1','P2','Defense'].forEach(function(p){var record=keyMap[source.semester+'|'+p];obj[p]={students:record?Object.keys(record.students).length:0,groups:record?Object.keys(record.groups).length:0};});return obj;
   });
+}
+function overview_(studentRows,groupRows) {
+  var allMarks=marks_(),indexed=comments_(),released=releases_(),sources=sourceRegistry_();
+  var phaseCounts={P1:0,P2:0,Defense:0};
+  studentRows.forEach(function(s){var m=allMarks[s.id]||{};if(m.p1!==null&&m.p1!==undefined)phaseCounts.P1++;if(m.p2!==null&&m.p2!==undefined)phaseCounts.P2++;if(m.defense!==null&&m.defense!==undefined)phaseCounts.Defense++;});
+  var lastSync='';indexed.forEach(function(r){if(r.syncedAt&&r.syncedAt>lastSync)lastSync=r.syncedAt;});
+  return {students:studentRows.length,groups:groupRows.length,recorded:phaseCounts,
+    semesters:summary_(studentRows,allMarks,indexed,released),lastSyncedAt:lastSync,
+    sourceStatus:sources.map(function(s){return {semester:s.semester,phases:['P1','P2','Defense'].map(function(p){return {phase:p,published:!!released[s.semester+'|'+p],indexed:indexed.some(function(r){return r.semester===s.semester&&r.phase===p;})};})};})};
 }
 function listPanelLinks_(managerId,phase) {
   var sheet=SpreadsheetApp.openById(managerId).getSheetByName(PHASE_INFO[phase].managerTab);assert_(sheet,'Panel source missing');
@@ -237,11 +330,93 @@ function restartSync_(semester,phase) {
   var lock=LockService.getScriptLock();assert_(lock.tryLock(5000),'Another sync is running');
   try{var state=jsonProp_(key,null);if(state){var book=indexBook_(),sheet=book.getSheetByName(state.sheet);if(sheet)book.deleteSheet(sheet);}scriptProps_().deleteProperty(key);return {restarted:true};}finally{lock.releaseLock();}
 }
+function announcementSheet_(create) {
+  var id=prop_('ANNOUNCEMENTS_SHEET_ID');
+  if(!id){
+    if(!create)return null;
+    var book=SpreadsheetApp.create('BRACU Thesis Portal — Public Announcements');
+    var first=book.getSheets()[0];first.setName('Announcements');
+    first.getRange(1,1,1,ANNOUNCEMENT_HEADERS.length).setValues([ANNOUNCEMENT_HEADERS]);
+    scriptProps_().setProperty('ANNOUNCEMENTS_SHEET_ID',book.getId());return first;
+  }
+  var sheet=SpreadsheetApp.openById(id).getSheetByName('Announcements');
+  assert_(sheet,'Announcements storage tab is missing');return sheet;
+}
+function announcements_() {
+  var sheet=announcementSheet_(false);if(!sheet||sheet.getLastRow()<2)return [];
+  return sheet.getRange(2,1,sheet.getLastRow()-1,ANNOUNCEMENT_HEADERS.length).getDisplayValues().map(function(r,i){return {
+    id:r[0],kind:r[1],title:r[2],body:r[3],eventDate:r[4],location:r[5],url:r[6],pinned:String(r[7]).toLowerCase()==='true',status:r[8],createdAt:r[9],updatedAt:r[10],author:r[11],row:i+2
+  };}).filter(function(item){return !!item.id;});
+}
+function publicAnnouncements_() {
+  var cache=typeof CacheService!=='undefined'?CacheService.getScriptCache():null;
+  if(cache){var hit=cache.get('PORTAL_PUBLIC_NEWS_V1');if(hit){try{return JSON.parse(hit);}catch(_){}}}
+  var items=announcements_().filter(function(a){return a.status==='published';}).sort(function(a,b){return Number(b.pinned)-Number(a.pinned)||String(b.updatedAt).localeCompare(String(a.updatedAt));}).slice(0,6).map(function(a){return {
+    id:a.id,kind:a.kind,title:a.title,body:a.body,eventDate:a.eventDate,location:a.location,url:a.url,pinned:a.pinned,updatedAt:a.updatedAt
+  };});
+  if(cache)cache.put('PORTAL_PUBLIC_NEWS_V1',JSON.stringify(items),90);
+  return items;
+}
+function invalidatePublicAnnouncements_(){if(typeof CacheService!=='undefined')CacheService.getScriptCache().remove('PORTAL_PUBLIC_NEWS_V1');}
+function announcementInput_(p) {
+  var fields={kind:String(p.kind||'Notice').trim(),title:String(p.title||'').trim(),body:String(p.body||'').trim(),eventDate:String(p.eventDate||'').trim(),location:String(p.location||'').trim(),url:String(p.url||'').trim(),pinned:p.pinned===true};
+  assert_(['Notice','Event','News','Deadline'].indexOf(fields.kind)>=0,'Invalid announcement category');
+  assert_(fields.title.length>=4&&fields.title.length<=160,'Title must be 4–160 characters');
+  assert_(fields.body.length>=10&&fields.body.length<=1200,'Description must be 10–1200 characters');
+  assert_(fields.location.length<=160,'Location is too long');
+  assert_(!fields.eventDate||/^20\d\d-\d\d-\d\d$/.test(fields.eventDate),'Invalid event date');
+  assert_(!fields.url||(/^https:\/\/[a-zA-Z0-9.-]+(?:\/[^\s]*)?$/.test(fields.url)&&fields.url.length<=500),'Link must be a safe HTTPS URL');
+  return fields;
+}
+function announcementValues_(item) {return [item.id,item.kind,item.title,item.body,item.eventDate,item.location,item.url,String(!!item.pinned),item.status,item.createdAt,item.updatedAt,item.author];}
+function saveAnnouncement_(p,email) {
+  var details=announcementInput_(p),status=String(p.status||'draft');
+  assert_(['draft','published'].indexOf(status)>=0,'Invalid announcement status');
+  var lock=LockService.getScriptLock();assert_(lock.tryLock(5000),'Another announcement update is running');
+  try {
+    var sheet=announcementSheet_(true),entries=announcements_(),existing=entries.filter(function(a){return a.id===String(p.id||'');})[0];
+    if(p.id)assert_(existing,'Announcement not found');
+    if(!existing)assert_(entries.length<150,'Archive older announcements before creating more');
+    var now=new Date().toISOString(),item={...details,id:existing?existing.id:Utilities.getUuid(),status:status,createdAt:existing?existing.createdAt:now,updatedAt:now,author:existing?existing.author:email};
+    // Preserve ISO dates, timestamps and boolean strings without Sheets
+    // converting them to locale-specific dates or TRUE/FALSE cells.
+    sheet.getRange(existing?existing.row:sheet.getLastRow()+1,1,1,ANNOUNCEMENT_HEADERS.length).setNumberFormat('@').setValues([announcementValues_(item)]);
+    invalidatePublicAnnouncements_();return {item:item};
+  }finally{lock.releaseLock();}
+}
+function statusAnnouncement_(p) {
+  var status=String(p.status||''),id=String(p.id||'');assert_(['draft','published','archived'].indexOf(status)>=0,'Invalid status');
+  var lock=LockService.getScriptLock();assert_(lock.tryLock(5000),'Another announcement update is running');
+  try {
+    var sheet=announcementSheet_(false);assert_(sheet,'No announcements have been created');
+    var existing=announcements_().filter(function(a){return a.id===id;})[0];assert_(existing,'Announcement not found');
+    var item={...existing,status:status,updatedAt:new Date().toISOString()};
+    sheet.getRange(existing.row,1,1,ANNOUNCEMENT_HEADERS.length).setNumberFormat('@').setValues([announcementValues_(item)]);
+    invalidatePublicAnnouncements_();return {item:item};
+  }finally{lock.releaseLock();}
+}
 function request_(body) {
+  var action=String(body.action||''),p=body.payload||{};
+  // The bridge secret is still required by doPost, but this action returns
+  // only explicitly published, administrator-authored public announcements.
+  if(action==='publicAnnouncements')return {items:publicAnnouncements_()};
   var principal=body.principal||{},email=norm_(principal.email);
   assert_(!!principal.sub && validBracEmail_(email),'A verified BRAC identity is required');
-  var studentRows=students_(),groupRows=groups_(),role=role_(email,studentRows);assert_(role,'Account is not authorized');
-  var action=String(body.action||''),p=body.payload||{};
+  // Publishing requires only the verified administrator identity. Avoid loading
+  // large academic master tabs for every visit to the news editor.
+  if(['announcements','saveAnnouncement','statusAnnouncement'].indexOf(action)>=0){
+    var newsRole=root_(email)?'prime_admin':adminEmails_().some(function(item){return norm_(item)===email;})?'admin':null;
+    permission_(newsRole,['admin','prime_admin']);
+    if(action==='announcements')return {items:announcements_()};
+    if(action==='saveAnnouncement')return saveAnnouncement_(p,email);
+    return statusAnnouncement_(p);
+  }
+  var studentRows=students_(),groupRows=groups_(),role=role_(email,studentRows);
+  if(!role&&email.endsWith('@bracu.ac.bd')) {
+    var refreshed=Date.parse(prop_('FACULTY_AUTO_UPDATED',''))||0;
+    if(Date.now()-refreshed>6*60*60*1000){try{refreshFacultyDirectory_(false);role=role_(email,studentRows);}catch(_){/* Refuse unknown users if the directory is unavailable. */}}
+  }
+  assert_(role,'Account is not authorized');
   if(action==='session')return {role:role,email:email,name:principal.name||email};
   if(action==='student'){permission_(role,['student']);return studentDashboard_(email,studentRows,groupRows);}
   if(action==='supervisor'){permission_(role,['supervisor']);return supervisorDashboard_(email,studentRows,groupRows);}
@@ -249,6 +424,26 @@ function request_(body) {
   if(action==='search'){permission_(role,['admin','prime_admin']);return {rows:adminSearch_(p.q,p.stage,p.type,studentRows,groupRows)};}
   if(action==='detail'){permission_(role,['admin','prime_admin']);return adminDetail_(p.studentId,studentRows,groupRows);}
   if(action==='summary'){permission_(role,['admin','prime_admin']);return {semesters:summary_(studentRows)};}
+  if(action==='overview'){permission_(role,['admin','prime_admin']);return overview_(studentRows,groupRows);}
+  if(action==='preview'){
+    permission_(role,['prime_admin']);
+    var previewRole=String(p.role||''),target=norm_(p.email);
+    assert_(['prime_admin','admin','student','supervisor'].indexOf(previewRole)>=0,'Invalid preview role');
+    if(previewRole==='prime_admin'||previewRole==='admin'){
+      auditPreview_(email,previewRole,email);return {role:previewRole,email:email,data:null};
+    }
+    assert_(validBracEmail_(target),'Enter a BRAC University email for the preview');
+    if(previewRole==='student'){
+      assert_(studentRows.some(function(s){return s.email===target||s.aliases.indexOf(target)>=0;}),'No student record matches that university account');
+      var studentPreview=studentDashboard_(target,studentRows,groupRows);
+      auditPreview_(email,previewRole,target);
+      return {role:previewRole,email:target,data:studentPreview};
+    }
+    assert_(facultyDirectory_().some(function(f){return f.email===target;}),'Faculty email not in the verified directory');
+    var facultyPreview=supervisorDashboard_(target,studentRows,groupRows);
+    auditPreview_(email,previewRole,target);
+    return {role:previewRole,email:target,data:facultyPreview};
+  }
   if(action==='registry'){permission_(role,['admin','prime_admin']);return {sources:sourceRegistry_(),releases:releases_()};}
   if(action==='admins'){permission_(role,['prime_admin']);return {admins:adminEmails_()};}
   if(action==='aliases'){permission_(role,['prime_admin']);return {aliases:jsonProp_('STUDENT_ALIASES_JSON',{})};}
@@ -269,6 +464,12 @@ function request_(body) {
     setJsonProp_('ADMIN_EMAILS_JSON',admins);return {admins:admins};
   }
   if(action==='faculty'){permission_(role,['prime_admin']);return {faculty:facultyDirectory_()};}
+  if(action==='facultyList'){
+    permission_(role,['prime_admin']);var warning='';
+    try{refreshFacultyDirectory_(false);}catch(err){warning='Automatic faculty refresh unavailable; showing the last verified directory.';}
+    var listing=facultyList_(groupRows);
+    return {faculty:listing,updatedAt:prop_('FACULTY_AUTO_UPDATED',''),warning:warning,matched:listing.filter(function(f){return !!f.email;}).length,missing:listing.filter(function(f){return !f.email;}).length};
+  }
   if(action==='setFaculty'){
     permission_(role,['prime_admin']);var facEmail=norm_(p.email),name=String(p.name||'').trim(),initial=String(p.initial||'').trim().toUpperCase();
     assert_(validBracEmail_(facEmail)&&name.length>3&&name.length<180&&/^[A-Z0-9]{2,10}$/.test(initial),'Invalid faculty mapping');

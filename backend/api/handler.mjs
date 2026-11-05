@@ -7,9 +7,10 @@
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
-  'session','student','supervisor','deadlines','search','detail','summary',
-  'registry','admins','addAdmin','removeAdmin','faculty','setFaculty',
-  'registerSemester','sync','restartSync','release','aliases','setAlias','removeAlias'
+  'session','student','supervisor','deadlines','search','detail','summary','overview','preview',
+  'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty',
+  'registerSemester','sync','restartSync','release','aliases','setAlias','removeAlias',
+  'announcements','saveAnnouncement','statusAnnouncement'
 ]);
 let jwksCache = { until: 0, keys: [] };
 
@@ -94,6 +95,21 @@ export default {
   async fetch(request, env) {
     const expected = String(env.APP_ORIGIN||'').replace(/\/$/,'');
     const origin = request.headers.get('origin');
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/v1/announcements') {
+      try {
+        if (!expected) throw new Error('Public feed unavailable');
+        const result = await forwardToAppsScript('publicAnnouncements', {}, {sub:'public',email:''}, env);
+        return new Response(JSON.stringify({ok:true,data:result}), {status:200,headers:{
+          'content-type':'application/json; charset=utf-8',
+          'cache-control':'public, max-age=60, s-maxage=60',
+          'x-content-type-options':'nosniff',
+          'referrer-policy':'no-referrer',
+        }});
+      } catch (_) {
+        return json({ok:false,error:'News and events are temporarily unavailable'},503,expected||'null');
+      }
+    }
     if (!expected || !env.GOOGLE_CLIENT_ID) return json({ok:false,error:'Portal API is not configured'},503,expected||'null');
     if (origin !== expected) return json({ok:false,error:'Origin not allowed'},403,expected);
     if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:{
@@ -103,7 +119,7 @@ export default {
       'vary':'Origin',
       'cache-control':'no-store',
     }});
-    const url=new URL(request.url),action=url.pathname.replace(/^\/+|\/+$/g,'').replace(/^v1\//,'');
+    const action=url.pathname.replace(/^\/+|\/+$/g,'').replace(/^v1\//,'');
     if (request.method !== 'POST' || !ROUTES.has(action)) return json({ok:false,error:'Unknown endpoint'},404,expected);
     if ((Number(request.headers.get('content-length'))||0)>24000) return json({ok:false,error:'Request too large'},413,expected);
     const authorization=request.headers.get('authorization')||'';
