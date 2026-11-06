@@ -112,6 +112,28 @@ test('D1 respects verified student and faculty scopes and preserves master comme
   }finally{db.close();}
 });
 
+test('D1 separates Early Defense deadlines from Final Defense for students',async()=>{
+  const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret,D1_ENABLED:'true'};
+  const earlyGroup={id:'T2530003',title:'Early Defense Group',type:'Thesis',stage:'Early Def'};
+  const records=[...seed,
+    makeRecord('group',earlyGroup.id,earlyGroup,{thesisId:earlyGroup.id,stage:earlyGroup.stage}),
+    makeRecord('student','22100003',{id:'22100003',name:'Early Student',thesisId:earlyGroup.id},{thesisId:earlyGroup.id}),
+    makeRecord('student_email','early@g.bracu.ac.bd',{studentId:'22100003'},{email:'early@g.bracu.ac.bd',thesisId:earlyGroup.id}),
+    makeRecord('deadline','5',{id:'5',phase:'Early Defense',title:'Early draft'}),
+    makeRecord('deadline','6',{id:'6',phase:'Defense',title:'Early Defense — Legacy slide'}),
+  ];
+  try{
+    assert.equal((await sync(env,records,'generationEarlyDefense123')).status,200);
+    const ids=async email=>(await readD1Action('deadlines',{email},env)).data.entries.map(item=>item.id);
+    assert.deepEqual(await ids('early@g.bracu.ac.bd'),['2','5','6']);
+    assert.deepEqual(await ids('b@g.bracu.ac.bd'),['2','4']);
+    assert.deepEqual(await ids('a@g.bracu.ac.bd'),['2','3']);
+    assert.deepEqual(await ids('faculty@bracu.ac.bd'),['2','3','4','5','6']);
+    assert.deepEqual(await ids('prime@bracu.ac.bd'),['2','3','4','5','6']);
+    assert.deepEqual((await readD1Action('overviewCounts',{email:'prime@bracu.ac.bd'},env)).data.counts,{P1:0,P2:1,Defense:2,Completed:0});
+  }finally{db.close();}
+});
+
 test('D1 maps legacy Prime Admin cache records to the same ordinary admin role',async()=>{
   const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret,D1_ENABLED:'true'};
   try{

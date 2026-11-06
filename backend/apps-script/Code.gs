@@ -68,9 +68,19 @@ function stageBucket_(stage) {
   var s=norm_(stage).replace(/[\s_-]+/g,'');
   if(/^(prethesis1|p1|pre1)$/.test(s))return 'P1';
   if(/^(prethesis2|p2|pre2)$/.test(s))return 'P2';
+  if(/early/.test(s)&&/(def|final|thesis)/.test(s))return 'Defense';
   if(/(final|defense|defence|ft)/.test(s))return 'Defense';
   if(/(complete|finished|graduat)/.test(s))return 'Completed';
   return 'Other';
+}
+function deadlineStage_(stage) {
+  var s=norm_(stage).replace(/[\s_-]+/g,'');
+  if(/early/.test(s)&&/(def|final|thesis)/.test(s))return 'Early Defense';
+  return stageBucket_(stage);
+}
+function deadlinePhase_(entry) {
+  if(entry.phase==='Early Defense'||(entry.phase==='Defense'&&/^\s*early\s*(?:defen[cs]e|def|final)/i.test(entry.title||'')))return 'Early Defense';
+  return entry.phase;
 }
 function number_(value) { var str = String(value === undefined || value === null ? '' : value).trim(); return str && /^-?\d+(\.\d+)?$/.test(str) ? Number(str) : null; }
 function rows_(id, tab, width) {
@@ -438,7 +448,7 @@ function academicInformation_() {
     if(isDeadline){
       var links=[];
       if(submissionUrl)links.push({label:String(r[5]||'Open submission'),url:submissionUrl});
-      var entry={id:String(i+2),phase:phase==='Early Defense'?'Defense':phase,title:phase==='Early Defense'?'Early Defense — '+title:title,day:day,date:date,daysLeft:daysLeft,
+      var entry={id:String(i+2),phase:phase,title:title,day:day,date:date,daysLeft:daysLeft,
         status:daysLeft||'Not specified',action:String(r[5]||'').trim()||'Submission details',url:submissionUrl,links:links};
       deadlines.push(entry);lastDeadline=entry;return;
     }
@@ -694,8 +704,8 @@ function request_(body) {
     if(role==='student'){
       var mine=studentRows.filter(function(s){return s.email===email||s.aliases.indexOf(email)>=0;})[0];
       var group=mine&&groupRows.filter(function(g){return g.id===mine.thesisId;})[0];
-      var phase=group?stageBucket_(group.stage):'';
-      entries=entries.filter(function(entry){return entry.phase==='General'||entry.phase===phase;});
+      var phase=group?deadlineStage_(group.stage):'';
+      entries=entries.filter(function(entry){return entry.phase==='General'||deadlinePhase_(entry)===phase;});
     }
     return {entries:entries};
   }

@@ -17,9 +17,17 @@ const stage = value => {
   const v=normalized(value).replace(/[\s_-]+/g,'');
   if(/^(prethesis1|p1|pre1)$/.test(v))return 'P1';
   if(/^(prethesis2|p2|pre2)$/.test(v))return 'P2';
+  if(/early/.test(v)&&/(def|final|thesis)/.test(v))return 'Defense';
   if(/(final|defense|defence|ft)/.test(v))return 'Defense';
   return '';
 };
+const deadlineStage = value => {
+  const v=normalized(value).replace(/[\s_-]+/g,'');
+  return /early/.test(v)&&/(def|final|thesis)/.test(v)?'Early Defense':stage(value);
+};
+const deadlinePhase = item => item.phase==='Early Defense'||
+  (item.phase==='Defense'&&/^\s*early\s*(?:defen[cs]e|def|final)/i.test(item.title||''))?
+  'Early Defense':item.phase;
 const countStage = value => {
   const v=normalized(value).replace(/[\s_-]+/g,'');
   if(/(complete|finished|graduat)/.test(v))return 'Completed';
@@ -108,10 +116,10 @@ export async function readD1Action(action,principal,env){
     if(!isAdmin&&!faculty&&alias){
       const registered=await indexed(env.DB,gen,'student',alias.studentId);
       const group=registered?.thesisId?await indexed(env.DB,gen,'group',registered.thesisId):null;
-      selectedStage=stage(group?.stage);
+      selectedStage=deadlineStage(group?.stage);
     }
     const result=(await rows(env.DB,"SELECT data_json FROM portal_cache WHERE generation=? AND kind='deadline' ORDER BY CAST(item_key AS INTEGER)",gen)).map(decode)
-      .filter(item=>isAdmin||faculty||item.phase==='General'||item.phase===selectedStage);
+      .filter(item=>isAdmin||faculty||item.phase==='General'||deadlinePhase(item)===selectedStage);
     return {handled:true,data:{entries:result}};
   }
 

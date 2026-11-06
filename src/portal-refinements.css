@@ -126,6 +126,32 @@
 .deadline-tabs button.selected{color:#124e81;background:#e7f3fc;border-color:#bcd7ed}
 .deadline-event-links{display:flex;justify-content:flex-end;flex-direction:column;gap:6px;min-width:0}
 .deadline-event-links a{overflow-wrap:anywhere}
+.deadline-table-wrap{overflow:hidden}
+.deadline-events-table{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}
+.deadline-events-table th{background:#f8fafc;padding:13px 20px;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#8a9fb0;font-weight:750}
+.deadline-events-table th:nth-child(1){width:42%}
+.deadline-events-table th:nth-child(2){width:25%}
+.deadline-events-table th:nth-child(3){width:13%}
+.deadline-events-table th:nth-child(4){width:20%;text-align:right}
+.deadline-events-table td{padding:19px 20px;vertical-align:middle;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.deadline-events-table tbody tr+tr td{border-top:1px solid #eaf0f4}
+.deadline-table-title strong{font-size:12px;font-weight:700;color:#294b67}
+.deadline-events-table td:last-child{text-align:right}
+.deadline-events-table .deadline-event-links a{display:inline-flex;align-items:center;gap:4px;justify-content:flex-end;text-align:right;color:#216995;text-decoration:none;font-size:11px;font-weight:700}
+.deadline-events-table .deadline-event-links a:hover{text-decoration:underline}
+.deadline-events-table .deadline-event-links a svg{flex-shrink:0}
+@media(max-width:750px){
+  .deadline-events-table,.deadline-events-table tbody,.deadline-events-table tr,.deadline-events-table td{display:block;width:100%}
+  .deadline-events-table thead{display:none}
+  .deadline-events-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;padding:17px 18px}
+  .deadline-events-table tbody tr+tr{border-top:1px solid #eaf0f4}
+  .deadline-events-table td{padding:0;border:0!important}
+  .deadline-events-table td:first-child,.deadline-events-table td:last-child{grid-column:1/-1}
+  .deadline-events-table td:nth-child(3){text-align:right}
+  .deadline-events-table td:last-child{text-align:left}
+  .deadline-events-table .deadline-event-links{align-items:flex-start}
+  .deadline-events-table .deadline-event-links a{justify-content:flex-start;text-align:left}
+}
 .resources-hub-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;color:#8399aa}
 .resource-without-link{cursor:default;box-shadow:none;opacity:.88}
 .resource-without-link:hover{transform:none;box-shadow:none;border-color:#e1ebf2}

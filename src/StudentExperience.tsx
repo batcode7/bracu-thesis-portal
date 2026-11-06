@@ -9,7 +9,7 @@ export function studentPhase(stage: string): 'P1' | 'P2' | 'Defense' | null {
   const value = stage.trim().toLowerCase();
   if (/pre[\s-]*thesis[\s-]*1|^p1\b/.test(value)) return 'P1';
   if (/pre[\s-]*thesis[\s-]*2|^p2\b/.test(value)) return 'P2';
-  if (value.includes('final') || value.includes('defense')) return 'Defense';
+  if (value.includes('final') || /\bdef(?:ense|ence)?\b/.test(value)) return 'Defense';
   return null;
 }
 

@@ -128,6 +128,7 @@ function CircleHelpIcon(){return <ShieldCheck size={16}/>;}
 
 function deadlineStage(stage:string){
   const value=stage.toLowerCase().replace(/[\s_-]/g,'');
+  if(/early/.test(value)&&/(def|final|thesis)/.test(value))return 'Early Defense';
   if(/^(prethesis1|p1|pre1)$/.test(value))return 'P1';
   if(/^(prethesis2|p2|pre2)$/.test(value))return 'P2';
   if(/(final|defense|defence|ft)/.test(value))return 'Defense';
@@ -138,11 +139,9 @@ function LiveDeadlines({token,studentStage}:{token:string;studentStage?:string})
   const [refreshId,setRefreshId]=useState(0);
   useEffect(()=>{let active=true;setLoading(true);cachedLiveRequest<{entries:Deadline[]}>(token,'deadlines',{},90000).then(x=>{if(active){setRows(x.entries);setError('');}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token,refreshId]);
   const phase=studentStage!==undefined?deadlineStage(studentStage):'';
-  const entries=rows.filter(item=>['General','P1','P2','Defense'].includes(item.phase)&&
-    (studentStage===undefined||item.phase==='General'||item.phase===phase));
   return <><div className="deadline-view-heading"><div><span className="eyebrow">ACADEMIC CALENDAR</span><h2>Submission deadlines</h2></div><button type="button" className="lightbtn" disabled={loading} onClick={()=>{invalidateLiveCache('deadlines');setRefreshId(n=>n+1);}}>Refresh</button></div>
     {error&&<div className="live-error" role="alert">The live deadline source could not be loaded: {error}</div>}
-    {loading?<PortalLoading label="Loading submission deadlines" detail="Reading the current university submission schedule…"/>:!error?<DeadlineBoard entries={entries} studentStage={studentStage!==undefined?phase:undefined}/>:null}
+    {loading?<PortalLoading label="Loading submission deadlines" detail="Reading the current university submission schedule…"/>:!error?<DeadlineBoard entries={rows} studentStage={studentStage!==undefined?phase:undefined}/>:null}
   </>;
 }
 

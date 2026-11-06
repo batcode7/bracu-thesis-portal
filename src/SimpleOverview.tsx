@@ -18,10 +18,10 @@ export default function SimpleOverview({token}:{token:string}){
   },[token,revision]);
   const refresh=()=>{invalidateLiveCache('overviewCounts');setRevision(x=>x+1);};
   const items=[
-    {key:'P1',title:'Pre-Thesis 1',description:'Current groups'},
-    {key:'P2',title:'Pre-Thesis 2',description:'Current groups'},
-    {key:'Defense',title:'Final Thesis',description:'Current groups'},
-    {key:'Completed',title:'Completed',description:'Finished groups'},
+    {key:'P1',title:'Pre-Thesis 1'},
+    {key:'P2',title:'Pre-Thesis 2'},
+    {key:'Defense',title:'Final Thesis'},
+    {key:'Completed',title:'Completed'},
   ] as const;
   return <div className="prime-stack">
     <section className="prime-intro"><div><span className="eyebrow">CURRENT STAGES</span><h2>Thesis groups at a glance</h2></div>
@@ -29,7 +29,7 @@ export default function SimpleOverview({token}:{token:string}){
     </section>
     {error&&<div className="live-error" role="alert">{error}</div>}
     {busy&&!counts?<PortalLoading label="Loading thesis group counts" detail="Reading the current academic cache…"/>:counts&&<div className="prime-metrics prime-overview-four">
-      {items.map(item=><div key={item.key} className="prime-metric"><span className="prime-metric-icon">{item.key==='Completed'?<CheckCircle2 size={18}/>:<GraduationCap size={18}/>}</span><span className="prime-metric-title">{item.title}</span><strong>{counts[item.key].toLocaleString()}</strong><small>{item.description}</small></div>)}
+      {items.map(item=><div key={item.key} className="prime-metric"><span className="prime-metric-icon">{item.key==='Completed'?<CheckCircle2 size={18}/>:<GraduationCap size={18}/>}</span><span className="prime-metric-title">{item.title}</span><strong>{counts[item.key].toLocaleString()}</strong></div>)}
     </div>}
   </div>;
 }

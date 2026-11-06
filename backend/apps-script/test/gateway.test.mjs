@@ -437,9 +437,10 @@ test('deadline source keeps general, P1 and early-defense deadlines and retains 
   context.SpreadsheetApp={openById:()=>({getSheetByName:name=>({getLastRow:()=>name==='Resources'?resources.length:5,getRange:()=>({getDisplayValues:()=>name==='Resources'?resources:rows,getRichTextValues:()=>name==='Resources'?[]:rich})})})};
   try {
     const result=run('partha.bhoumik@bracu.ac.bd','deadlines').entries;
-    assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1','Defense']);
+    assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1','Early Defense']);
     assert.equal(result[1].url,'https://forms.gle/example');
     assert.match(result[3].title,/Early Defense/);
+    assert.doesNotMatch(result[3].title,/^Early Defense — Early Defense/);
   } finally {context.SpreadsheetApp=previous;}
 });
 
@@ -480,13 +481,21 @@ test('students see general and their own stage; faculty and admins see all deadl
     {id:'p1',phase:'P1',title:'P1 submission'},
     {id:'p2',phase:'P2',title:'P2 submission'},
     {id:'ft',phase:'Defense',title:'Final defense'},
+    {id:'ed',phase:'Early Defense',title:'Early draft'},
+    {id:'legacy',phase:'Defense',title:'Early Defense — Older draft'},
   ],resources:[{id:'r1',phase:'General',title:'Thesis template',url:'https://example.com'}]});
   try {
     assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['g','p2']);
     assert.deepEqual(Array.from(run('second@g.bracu.ac.bd','deadlines').entries,x=>x.id),['g','ft']);
-    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft']);
-    assert.deepEqual(Array.from(run('partha.bhoumik@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft']);
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft','ed','legacy']);
+    assert.deepEqual(Array.from(run('partha.bhoumik@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft','ed','legacy']);
     assert.equal(run('first@g.bracu.ac.bd','resources').items[0].title,'Thesis template');
+    const originalStage=groups[1].stage;
+    try{
+      groups[1].stage='Early Def';
+      assert.deepEqual(Array.from(run('second@g.bracu.ac.bd','deadlines').entries,x=>x.id),['g','ed','legacy']);
+      assert.equal(context.stageBucket_('Early Def'),'Defense');
+    }finally{groups[1].stage=originalStage;}
   }finally{context.academicInformation_=old;}
 });
 
