@@ -3,7 +3,8 @@
  * A complete generation is made visible in ONE atomic pointer change. Until
  * then, students keep seeing the last successful snapshot.
  */
-const KINDS = new Set(['student','student_email','group','assignment','faculty','prime_admin','deadline','resource']);
+// Accept legacy snapshot kinds during migration; new snapshots publish `admin`.
+const KINDS = new Set(['student','student_email','group','assignment','faculty','admin','prime_admin','deadline','resource']);
 const reply = (value,status=200) => Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const clean = value => typeof value==='string'?value.trim():'';
 async function equalSecret(a,b){

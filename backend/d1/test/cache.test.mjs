@@ -35,7 +35,7 @@ const groupA={id:'T2530001',title:'Group A',type:'Thesis',stage:'Pre-Thesis 2',p
   facultyContacts:[{slot:'Supervisor 1',name:'Dr. Faculty A',email:'faculty@bracu.ac.bd',room:'4A21',designation:'Professor'}]};
 const groupB={id:'T2530002',title:'Group B',type:'Thesis',stage:'Final Thesis',phaseSemesters:{},phaseComments:{Defense:'Secret B feedback'}};
 const seed=[
-  makeRecord('prime_admin','prime@bracu.ac.bd',{email:'prime@bracu.ac.bd'},{email:'prime@bracu.ac.bd'}),
+  makeRecord('admin','prime@bracu.ac.bd',{email:'prime@bracu.ac.bd'},{email:'prime@bracu.ac.bd'}),
   makeRecord('faculty','faculty@bracu.ac.bd',{email:'faculty@bracu.ac.bd',name:'Dr. Faculty A',designation:'Professor',room:'4A21'},{email:'faculty@bracu.ac.bd'}),
   makeRecord('group','T2530001',groupA,{thesisId:'T2530001'}),
   makeRecord('group','T2530002',groupB,{thesisId:'T2530002'}),
@@ -99,11 +99,25 @@ test('D1 respects verified student and faculty scopes and preserves master comme
     assert.equal(supervisor.groups[0].feedback.length,2);
     assert.deepEqual((await readD1Action('deadlines',{email:'a@g.bracu.ac.bd'},env)).data.entries.map(item=>item.phase),['General','P2']);
     assert.equal((await readD1Action('deadlines',{email:'faculty@bracu.ac.bd'},env)).data.entries.length,3);
+    assert.deepEqual((await readD1Action('session',{email:'prime@bracu.ac.bd'},env)).data.roles,['admin']);
+    assert.equal((await readD1Action('deadlines',{email:'prime@bracu.ac.bd'},env)).data.entries.length,3);
     assert.equal((await readD1Action('resources',{email:'b@g.bracu.ac.bd'},env)).data.items.length,1);
     await assert.rejects(readD1Action('student',{email:'faculty@bracu.ac.bd'},env),/Student record/);
     await assert.rejects(readD1Action('supervisor',{email:'a@g.bracu.ac.bd'},env),/Faculty record/);
     await assert.rejects(readD1Action('student',{email:'unknown@g.bracu.ac.bd'},env),/not authorized/);
     assert.equal(await readD1Action('search',{email:'prime@bracu.ac.bd'},env),null);
+  }finally{db.close();}
+});
+
+test('D1 maps legacy Prime Admin cache records to the same ordinary admin role',async()=>{
+  const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret,D1_ENABLED:'true'};
+  try{
+    const oldSeed=seed.map(record=>record.kind==='admin'?{...record,kind:'prime_admin'}:record);
+    assert.equal((await sync(env,oldSeed,'legacyGeneration123456789')).status,200);
+    const migrated=(await readD1Action('session',{email:'prime@bracu.ac.bd'},env)).data;
+    assert.deepEqual(migrated.roles,['admin']);
+    assert.equal(migrated.role,'admin');
+    assert.equal((await readD1Action('deadlines',{email:'prime@bracu.ac.bd'},env)).data.entries.length,3);
   }finally{db.close();}
 });
 

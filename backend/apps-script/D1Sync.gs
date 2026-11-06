@@ -56,7 +56,7 @@ function d1Snapshot_() {
     put('group',g.id,Object.assign({},g,{facultyContacts:contacts}), '',g.id,g.stage,g.title);
     Object.keys(assignments).forEach(function(email){put('assignment',email+'|'+g.id,{email:email,thesisId:g.id,myRoles:assignments[email]},email,g.id,g.stage,'');});
   });
-  primeAdminEmails_().forEach(function(email){put('prime_admin',email,{email:email},email,'','','');});
+  adminEmails_().forEach(function(email){put('admin',email,{email:email},email,'','','');});
   content.deadlines.forEach(function(item){put('deadline',item.id,item,'', '',item.phase,item.title);});
   content.resources.forEach(function(item){put('resource',item.id,item,'', '',item.phase,item.title);});
   records.sort(function(a,b){return (a.kind+'|'+a.key).localeCompare(b.kind+'|'+b.key);});
@@ -84,6 +84,23 @@ function syncD1Now() {
     assert_(secret.length>=32,'Set D1_SYNC_SECRET in Script Properties');
     assert_(/^https:\/\/[a-z0-9.-]+\/internal\/d1-sync$/i.test(url),'D1_SYNC_URL must be a trusted HTTPS portal sync endpoint');
     var records=d1Snapshot_(),checksum=d1Hash_(JSON.stringify(records));
+    // D1 only allows 250 characters in denormalized search indexes. Some
+    // thesis/resource titles are longer, but the complete value remains in
+    // data_json. Keep the checksum based on the authoritative full records,
+    // so an interrupted generation from the previous script can be resumed.
+    var shortened=0;
+    var wireRecords=records.map(function(record){
+      ['email','thesisId','stage'].forEach(function(field){
+        assert_(typeof record[field]==='string'&&record[field].length<=250,
+          'D1 '+field+' index too long for '+record.kind+' '+record.key);
+      });
+      assert_(typeof record.name==='string','Invalid D1 name index for '+record.kind+' '+record.key);
+      assert_(JSON.stringify(record.data).length<=45000,'D1 record data too large for '+record.kind+' '+record.key);
+      if(record.name.length<=250)return record;
+      shortened++;
+      return Object.assign({},record,{name:record.name.slice(0,250)});
+    });
+    if(shortened)Logger.log('D1 shortened '+shortened+' search name indexes to 250 characters; full source values retained');
     var properties=scriptProps_();
     var pendingGeneration=prop_('D1_PENDING_GENERATION');
     var pendingChecksum=prop_('D1_PENDING_CHECKSUM');
@@ -102,9 +119,9 @@ function syncD1Now() {
       for(var i=cursor;i<records.length;){
         var chunk=[],bytes=0;
         while(i<records.length&&chunk.length<50){
-          var estimated=JSON.stringify(records[i]).length+2;
+          var estimated=JSON.stringify(wireRecords[i]).length+2;
           if(chunk.length&&bytes+estimated>400000)break;
-          chunk.push(records[i++]);bytes+=estimated;
+          chunk.push(wireRecords[i++]);bytes+=estimated;
         }
         d1Send_(url,secret,{mode:'batch',generation:generation,records:chunk});
         properties.setProperty('D1_PENDING_CURSOR',String(i));

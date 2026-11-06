@@ -1,4 +1,6 @@
-# Prime Admin UI refresh — rollout notes
+# Historical administrator UI refresh — rollout notes
+
+**Role note:** Older references to “Prime Admin” now mean **Admin**, the only administrator role. Follow [`D1_SETUP.md`](D1_SETUP.md) for the current role migration.
 
 **Historical documentation:** The academic Publish/Unpublish control described in older notes has been removed by v8. See [`UPGRADE_V8.md`](UPGRADE_V8.md); News & Events publication is unaffected.
 

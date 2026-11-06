@@ -55,8 +55,8 @@ async function currentSnapshot(db){
   if(!active?.generation)fail(503,'Academic cache has not completed its first synchronization');
   return active;
 }
-function rolesFor(prime,faculty,student){
-  return [...(prime?['prime_admin']:[]),...(faculty?['supervisor']:[]),...(student?['student']:[])];
+function rolesFor(admin,faculty,student){
+  return [...(admin?['admin']:[]),...(faculty?['supervisor']:[]),...(student?['student']:[])];
 }
 
 /** Returns {handled,data} or null. Never bypass a missing active D1 snapshot. */
@@ -71,12 +71,16 @@ export async function readD1Action(action,principal,env){
     fail(503,'Academic cache is unavailable; contact the portal administrator');
   }
   const gen=active.generation;
-  const [prime,faculty,alias]=await Promise.all([
+  const [admin,legacyAdmin,faculty,alias]=await Promise.all([
+    indexed(env.DB,gen,'admin',email),
+    // Active D1 generations created before this change used prime_admin.
+    // Map their members to the new single admin role until the next sync.
     indexed(env.DB,gen,'prime_admin',email),
     indexed(env.DB,gen,'faculty',email),
     indexed(env.DB,gen,'student_email',email),
   ]);
-  const roles=rolesFor(prime,faculty,alias);
+  const isAdmin=!!(admin||legacyAdmin);
+  const roles=rolesFor(isAdmin,faculty,alias);
   if(!roles.length)fail(403,'Account is not authorized');
   if(action==='session')return {handled:true,data:{role:roles[0],roles,email,
     name:String(principal.name||faculty?.name||email).slice(0,120),
@@ -88,13 +92,13 @@ export async function readD1Action(action,principal,env){
   }
   if(action==='deadlines'){
     let selectedStage='';
-    if(!prime&&!faculty&&alias){
+    if(!isAdmin&&!faculty&&alias){
       const registered=await indexed(env.DB,gen,'student',alias.studentId);
       const group=registered?.thesisId?await indexed(env.DB,gen,'group',registered.thesisId):null;
       selectedStage=stage(group?.stage);
     }
     const result=(await rows(env.DB,"SELECT data_json FROM portal_cache WHERE generation=? AND kind='deadline' ORDER BY CAST(item_key AS INTEGER)",gen)).map(decode)
-      .filter(item=>prime||faculty||item.phase==='General'||item.phase===selectedStage);
+      .filter(item=>isAdmin||faculty||item.phase==='General'||item.phase===selectedStage);
     return {handled:true,data:{entries:result}};
   }
 

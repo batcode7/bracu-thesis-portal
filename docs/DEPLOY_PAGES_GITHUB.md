@@ -85,7 +85,7 @@ If you later add your own domain, add that domain as an authorized JavaScript or
 ## 5. Verify before inviting students
 
 1. Visit the published Pages URL. You should see the **Google sign-in screen**, not the demo role selector.
-2. Sign in as `partha.bhoumik@bracu.ac.bd`. The server must return `prime_admin`.
+2. Sign in as `partha.bhoumik@bracu.ac.bd`. The server must return `admin`. Open **Administrators** to test granting another verified faculty member admin access.
 3. Open **Faculty List** and verify that official faculty names with or without `Mr.`, `Ms.`, etc. resolve to the same identity; use approved inline edits only when needed.
 4. Map any student's BRAC email to their 8-digit Student ID if their master-sheet row contains a personal email.
 5. Register semester manager IDs and choose **Sync all batches** for P1/P2/Defense until each is complete. Allow the Apps Script owner to open every evaluator workbook; inaccessible workbooks fail the sync.
@@ -109,7 +109,7 @@ Cloudflare Pages automatically rebuilds your production branch when you push to 
 - `src/live-api.ts` fetches the same-origin `/v1/<action>` API.
 - `functions/v1/[action].js` authenticates calls using `backend/api/handler.mjs`.
 - The handler validates Google ID-token signature, issuer, audience, expiry, verified email and Workspace hosted domain. It issues a two-hour Secure/HttpOnly/SameSite cookie so refresh does not require a new login, then calls Apps Script with a server-side shared secret. Each backend action rechecks the real user's role; sign-out clears the cookie.
-- Apps Script independently authorizes students, assigned supervisors, admins and the one Prime Administrator.
+- Apps Script independently authorizes students, assigned supervisors, and one equal-permissions **Admin** role. Every admin may appoint another verified faculty member.
 - The private semester comment index is separate from the university source Sheets.
 - Root `.gitignore` excludes local environment files, local secrets, dependencies and generated build output from **new** GitHub repositories.
 

@@ -2,7 +2,7 @@
 
 **Historical documentation:** The current v8 behavior includes abstracts, direct recorded marks, assigned-group panel comments, and student-email copying. See [`UPGRADE_V8.md`](UPGRADE_V8.md); the older release-gating descriptions below no longer apply.
 
-The live supervisor dashboard has been redesigned to show **one row per assigned research group**, rather than repeating the same group separately for every student. The Prime Admin's read-only Supervisor preview uses this identical interface.
+The live supervisor dashboard has been redesigned to show **one row per assigned research group**, rather than repeating the same group separately for every student. The admin's read-only Supervisor preview uses this identical interface.
 
 ## Group overview
 

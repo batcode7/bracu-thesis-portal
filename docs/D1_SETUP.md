@@ -7,7 +7,7 @@ This is a **deployment guide**, not an already-live migration. The application s
 - **Google Sheets stays authoritative.** Edits to old *or* new rows, student names, group assignments, comments, scores, faculty details, deadlines, and resource links are included in each synchronized snapshot.
 - A 5-minute Apps Script time trigger scans the master and current `Deadlines and Links` workbook. A SHA-256 snapshot checksum avoids rewriting unchanged data; however it still checks the D1 active checksum, so restoring or replacing a database is detected.
 - Cloudflare Pages Functions read student dashboards, supervisor dashboards, account roles, deadlines and resources **directly from D1**. This removes their per-request dependency on the Apps Script execution limit.
-- The master-sheet search, Prime Admin overview, faculty edits, role grants, announcements, and historical index sync remain on the authenticated Apps Script backend. They are low-volume operations, but do not have D1-level scale yet.
+- The master-sheet search, administrator overview, faculty edits, role grants, announcements, and historical index sync remain on the authenticated Apps Script backend. They are low-volume operations, but do not have D1-level scale yet.
 - Snapshot activation happens only after all batches have been stored; readers see the last complete generation during a partial/failing update. The previous three successful generations are retained for cleanup safety.
 - Normal synchronization lag is approximately 0–5 minutes **plus the trigger's processing time**. It is not instant. Google may delay scheduled triggers. A temporarily unavailable upstream sheet prevents a successful new snapshot; the previous D1 generation stays available.
 
@@ -64,6 +64,15 @@ GROUP BY kind;
 
 Do not enable the D1 read path until these checks pass. If synchronization fails, investigate Apps Script execution logs and the Cloudflare Pages Function logs. The prior active generation remains intact.
 
+### Handling duplicated source records
+
+- **Student ID is the immutable record key.** If the same Student ID appears twice in Thesis Master, synchronization intentionally fails; correct the upstream import formula before trying again.
+- Multiple **different IDs with the same Google Workspace email do not stop synchronization**. Both Student ID records remain in D1. The conflicted email is omitted from the `student_email` login index so the same Google account cannot access one student's private data arbitrarily.
+- Examine the Apps Script execution log and Script Properties `D1_EMAIL_COLLISION_COUNT` / `D1_EMAIL_COLLISIONS_JSON` (up to 40 entries) to find conflicted addresses and Student IDs. The official UG Thesis source does not need to be edited.
+- Students whose emails are ambiguous cannot use their student account until an administrator verifies a separate unique email or resolves the conflict through an authoritative, controlled override. This is intentional; never select the first matching ID for authorization.
+- Large imports are **resumable**. A run checkpoints its generation and cursor in `D1_PENDING_GENERATION`, `D1_PENDING_CHECKSUM`, and `D1_PENDING_CURSOR` before the Apps Script execution limit; the next scheduled trigger resumes it. A change to the underlying data starts a new generation because the checksum changed. Do not repeatedly run `installD1Sync()`; use `syncD1Now()`.
+- D1 search-index strings have a 250-character limit. The Apps Script uploader truncates only the denormalized `name` index for unusually long thesis/resource titles; the full original text remains in `data_json` and the snapshot checksum. Other invalid indexes or oversized source records produce a descriptive error before uploading any more batches.
+
 ## Step 4 — Enable fast D1 reads
 
 Set Pages **server-side** environment variable `D1_ENABLED=true` and redeploy.
@@ -72,10 +81,10 @@ Verify with actual authorized university accounts:
 
 1. Student A sees only their own group, marks and P1/P2/Defense comments.
 2. A supervisor sees only groups linked through a uniquely verified official faculty name/email.
-3. A faculty member who is also a Prime Admin has both role choices in the top-right account menu.
-4. A student in P2 sees only **General + P2** deadlines, including submission hyperlinks; supervisors and Prime Admins see all stage tabs.
+3. A faculty member who is also an administrator has both role choices in the top-right account menu.
+4. A student in P2 sees only **General + P2** deadlines, including submission hyperlinks; supervisors and administrators see all stage tabs.
 5. Changing an existing Thesis Master comment or faculty assignment eventually appears in D1 after the next successful sync.
-6. New Prime Admin grants can take one synchronization interval to appear in D1-backed login/role switching. Their write permissions are always checked against the live Apps Script role list.
+6. New administrator grants can take one synchronization interval to appear in D1-backed login/role switching. Their write permissions are always checked against the live Apps Script role list.
 
 If a configured D1 is unexpectedly empty or unavailable, the five high-volume actions return an explicit error rather than flooding Google Apps Script with fallback requests. Set `D1_ENABLED=false` (and redeploy) to intentionally revert to the previous Apps Script read path while investigating.
 
@@ -87,6 +96,10 @@ If a configured D1 is unexpectedly empty or unavailable, the five high-volume ac
 - The deadline workbook currently has some dates without years and may mark entries as “Expired.” The portal faithfully shows the published Day, Deadline and Days Left, rather than inventing a year or date.
 - **Privacy:** D1 is a full additional copy of student and faculty information. Restrict Cloudflare account access, protect the sync secret, and confirm university approval and data-retention policies before migrating real student records.
 
-## Multiple Prime Admins
+## Administrator management
 
-The legacy regular Admin role has been removed from the live API. A Prime Admin may add another verified faculty-directory email through the **Prime Admins** page. `partha.bhoumik@bracu.ac.bd` remains the non-removable founding Prime Admin. Each authorized Prime Admin can grant or revoke other Prime Admins but cannot revoke themselves. Grants, revocations, and preview targets are recorded in Apps Script properties for a small rolling audit trail. More permanent auditing can be added before institutional deployment.
+There is exactly one privileged role: **Admin**. Every administrator sees the same administrator workspace and may appoint another verified email from the official faculty directory through **Administrators**. Admins may revoke each other but not their own access. The account `partha.bhoumik@bracu.ac.bd` is included as a migration bootstrap administrator **without permanent special protection**. No extra privileged founder role exists.
+
+When the upgraded Apps Script first writes `ADMIN_ROLE_LIST_JSON`, it merges the bootstrap account and any previous `ADMIN_EMAILS_JSON` and `PRIME_ADMIN_EMAILS_JSON` lists. These older properties remain untouched for rollback but no longer grant privileges after the first role edit. D1 accepts older `prime_admin` records from already active generations, presenting them as ordinary `admin` until the next successful synchronization publishes `admin` records. Admin grants/revocations and preview targets are recorded in rolling Apps Script audit properties; consider permanent auditing before broad deployment.
+
+**Upgrade order from an older Prime Admin deployment:** Update `Code.gs` and `D1Sync.gs`, redeploy the existing Apps Script web app; deploy the updated Cloudflare Pages build; then run `syncD1Now()` (or let the five-minute trigger finish). Existing D1 data remains available during the rollout. Do not manually delete old D1 rows or properties.

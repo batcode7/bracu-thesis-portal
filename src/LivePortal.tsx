@@ -5,6 +5,7 @@ import PortalLoading from './PortalLoading';
 import { PortalWelcome } from './PortalWelcome';
 import { DeadlineBoard } from './DeadlineBoard';
 import { PrimeFacultyList, PrimeOverview, PrimePreviewDialog, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
+import { BrandLogo } from './BrandLogo';
 import { AdminAnnouncements } from './Announcements';
 import StudentExperience from './StudentExperience';
 import SupervisorExperience from './SupervisorExperience';
@@ -56,10 +57,10 @@ function LiveLogin({onToken}:{onToken:(token:string)=>Promise<void>}) {
   return <PortalWelcome><div className="live-login-control" aria-busy={signingIn}>{configured?<div ref={buttonElement} style={{pointerEvents:signingIn?'none':undefined,opacity:signingIn?.55:1}}/>:<div className="live-config-alert"><LockKeyhole size={18}/> Google Workspace authentication is not configured. The portal remains locked until the administrator completes deployment.</div>}</div>{configured&&!loaded&&!error&&<PortalLoading compact label="Preparing Google sign-in" detail="Connecting to your university authentication provider…"/>}{signingIn&&<PortalLoading compact label="Verifying your BRAC University account" detail="Checking your role and creating a secure session…"/>}{error&&<div className="live-error" role="alert">{error}</div>}</PortalWelcome>;
 }
 
-const roleLabel = (value:string) => ({prime_admin:'Prime Admin',supervisor:'Supervisor / Faculty',student:'Student'} as Record<string,string>)[value]||value;
+const roleLabel = (value:string) => ({admin:'Administrator',supervisor:'Supervisor / Faculty',student:'Student'} as Record<string,string>)[value]||value;
 function AccountMenu({session,role,onSwitch,onSignOut,loggingOut}:{session:Session;role:string;onSwitch:(role:Session['role'])=>void;onSignOut:()=>void;loggingOut:boolean}){
   const [open,setOpen]=useState(false),container=useRef<HTMLDivElement>(null);
-  const roles=(session.roles?.length?session.roles:[session.role]).filter(r=>r!=='admin');
+  const roles=session.roles?.length?session.roles:[session.role];
   useEffect(()=>{
     if(!open)return;
     const close=(event:PointerEvent)=>{if(!container.current?.contains(event.target as Node))setOpen(false);};
@@ -196,7 +197,7 @@ function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
   const pct=progress?(progress.total?Math.round(progress.processed/progress.total*100):100):0;
   return <>
     <section className="card admincard"><h3>Semester panel managers</h3><p className="smallmuted">Managed in Thesis Master → Panel Manager Links. Add or change links in that sheet; the portal reads them automatically.</p>{registryBusy?<PortalLoading compact label="Loading semester registry" detail="Reading Panel Manager Links in Thesis Master…"/>:<div className="source-live-list">{sources.map(s=><div key={s.semester}><b>{s.semester}</b><small>Spreadsheet ending …{s.spreadsheetId.slice(-6)}</small></div>)}</div>}</section>
-    <section className="card admincard" style={{marginTop:16}}><h3>Historical feedback index</h3><p className="smallmuted">{readOnly?'Read-only preview of configured evaluation sources.':'Optional legacy synchronization for semester statistics. Student, supervisor and Prime Admin comment views now read Group info directly, so syncing is not needed to display those comments.'}</p>
+    <section className="card admincard" style={{marginTop:16}}><h3>Historical feedback index</h3><p className="smallmuted">{readOnly?'Read-only preview of configured evaluation sources.':'Optional legacy synchronization for semester statistics. Student, supervisor and admin comment views now read Group info directly, so syncing is not needed to display those comments.'}</p>
       <div className="formrow"><select aria-label="Semester" disabled={busy} value={semester} onChange={e=>setSemester(e.target.value)}>{sources.map(s=><option key={s.semester}>{s.semester}</option>)}</select><select aria-label="Evaluation phase" disabled={busy} value={phase} onChange={e=>setPhase(e.target.value)}><option>P1</option><option>P2</option><option value="Defense">Defense</option></select>{!readOnly&&<><button className="lightbtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>void runSync()}>{busy?'Syncing…':'Sync all batches'}</button>{busy&&<button type="button" className="lightbtn" onClick={()=>{cancelRef.current=true;}}>Pause after current batch</button>}</>}</div>
       {progress&&<div className="sync-progress" role="status" aria-live="polite"><div className="sync-progress-heading">{busy&&<span className="sync-spinner" aria-hidden="true"/>}<strong>{progress.complete?'Feedback import complete':'Synchronizing '+progress.phase+' evaluations'}</strong><span>{progress.semester}</span></div><p>Processed: <b>{progress.processed} / {progress.total}</b> evaluator sheets · {pct}%</p><progress max="100" value={pct} aria-label="Feedback synchronization progress"/><small>{progress.complete?'Feedback index updated. Verify the imported results in each role view.':'Retrieving evaluator feedback…'}</small>{progress.errors.length>0&&<><ul>{progress.errors.map((err,i)=><li key={i}>{err}</li>)}</ul>{!readOnly&&<button type="button" className="lightbtn" disabled={busy} onClick={()=>{if(window.confirm('Discard the incomplete staged import and restart this semester/phase?')){void liveRequest(token,'restartSync',{semester:progress.semester,phase:progress.phase}).then(()=>{setProgress(null);setMessage('Incomplete staging cleared. You may start sync again.');}).catch(err=>setMessage(String(err instanceof Error?err.message:err)));}}}>Restart incomplete import</button>}</>}</div>}
     </section>
@@ -204,12 +205,12 @@ function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
   </>;
 }
 
-function LiveAdmins({token}:{token:string}) {
-  const [admins,setAdmins]=useState<string[]>([]),[protectedEmail,setProtectedEmail]=useState(''),[email,setEmail]=useState(''),[message,setMessage]=useState(''),[loading,setLoading]=useState(true);
-  const load=()=>{setLoading(true);return liveRequest<{admins:string[];protected:string}>(token,'primeAdmins').then(x=>{setAdmins(x.admins);setProtectedEmail(x.protected);}).catch(e=>setMessage(e.message)).finally(()=>setLoading(false));};
+function LiveAdmins({token,currentEmail}:{token:string;currentEmail:string}) {
+  const [admins,setAdmins]=useState<string[]>([]),[email,setEmail]=useState(''),[message,setMessage]=useState(''),[loading,setLoading]=useState(true);
+  const load=()=>{setLoading(true);return liveRequest<{admins:string[]}>(token,'admins').then(x=>setAdmins(x.admins)).catch(e=>setMessage(e.message)).finally(()=>setLoading(false));};
   useEffect(()=>{load();},[token]);
-  const act=async(action:string,payload:Record<string,unknown>)=>{try{const result=await liveRequest<{admins?:string[]}>(token,action,payload);if(result.admins)setAdmins(result.admins);setMessage('Prime Admin access updated. With D1 enabled, allow up to one synchronization interval before the new role appears at sign-in.');}catch(e){setMessage(String(e instanceof Error?e.message:e));}};
-  return <><section className="card admincard"><h3>Prime Admin access</h3><p className="smallmuted">Every Prime Admin can appoint another Prime Admin. These accounts have the same administrative privileges. There is no separate regular Admin role.</p>{loading?<PortalLoading label="Loading Prime Administrators" detail="Verifying privileged accounts…"/>:<>{admins.map(name=><div className="adminrow" key={name}><div><b>{name}</b><small>{name===protectedEmail?'Protected founding Prime Admin':'Prime Admin'}</small></div>{name===protectedEmail?<span className="pill green">Protected</span>:<button className="lightbtn" onClick={()=>{if(window.confirm('Revoke Prime Admin access for '+name+'?'))void act('removePrimeAdmin',{email:name});}}>Revoke</button>}</div>)}<form className="addform" onSubmit={e=>{e.preventDefault();void act('addPrimeAdmin',{email});setEmail('');}}><label>Add a Prime Admin</label><div className="formrow"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button className="primarybtn">Grant Prime Admin access</button></div></form></>}</section>{message&&<div className="infobar" role="status">{message}</div>}</>;
+  const act=async(action:string,payload:Record<string,unknown>)=>{try{const result=await liveRequest<{admins?:string[]}>(token,action,payload);if(result.admins)setAdmins(result.admins);setMessage('Administrator access updated. With D1 enabled, allow up to one synchronization interval before the role appears at sign-in.');}catch(e){setMessage(String(e instanceof Error?e.message:e));}};
+  return <><section className="card admincard"><h3>Administrator access</h3><p className="smallmuted">Every administrator has the same dashboard and permissions, including the ability to appoint another verified faculty member as an administrator. Administrators cannot revoke themselves.</p>{loading?<PortalLoading label="Loading administrators" detail="Verifying administrator accounts…"/>:<>{admins.map(name=><div className="adminrow" key={name}><div><b>{name}</b><small>Administrator</small></div>{name===currentEmail.toLowerCase()?<span className="pill green">You</span>:<button className="lightbtn" onClick={()=>{if(window.confirm('Revoke administrator access for '+name+'?'))void act('removeAdmin',{email:name});}}>Revoke</button>}</div>)}<form className="addform" onSubmit={e=>{e.preventDefault();void act('addAdmin',{email});setEmail('');}}><label>Add an administrator</label><div className="formrow"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button className="primarybtn">Grant administrator access</button></div></form></>}</section>{message&&<div className="infobar" role="status">{message}</div>}</>;
 }
 
 export default function LivePortal() {
@@ -249,19 +250,19 @@ export default function LivePortal() {
   };
   const role=preview?.role||selectedRole;
   const switchRole=(next:Session['role'])=>{
-    if(!session||next==='admin'||!(session.roles||[session.role]).includes(next))return;
+    if(!session||!(session.roles||[session.role]).includes(next))return;
     clearLiveCache();setSelectedRole(next);setPreview(null);setData(null);setDataBusy(true);setPage('dashboard');setError('');
   };
   useEffect(()=>{if(session&&!preview)rememberPage(session,page);},[session,preview,page]);
-  const actualPrime=!!session&&(session.roles||[session.role]).includes('prime_admin');
-  const showPrimeControls=actualPrime&&!preview&&role==='prime_admin';
+  const actualAdmin=!!session&&(session.roles||[session.role]).includes('admin');
+  const showAdminControls=actualAdmin&&!preview&&role==='admin';
   const nav=useMemo(()=>role==='student'?
     [['dashboard','Dashboard',LayoutDashboard],['evaluations','My Evaluations',ClipboardList],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen]]:
     role==='supervisor'?
       [['dashboard','My Groups',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen]]:
       [['dashboard','Overview',LayoutDashboard],['search','Student Search',Search],['rolepreview','View as another role',Eye],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],['sources','Semester Sources',TableProperties],['announcements','News & Events',Megaphone],
-        ...(showPrimeControls?[['faculty','Faculty List',Users],['admins','Prime Admins',ShieldCheck]]:[])],
-    [role,showPrimeControls]);
+        ...(showAdminControls?[['faculty','Faculty List',Users],['admins','Administrators',ShieldCheck]]:[])],
+    [role,showAdminControls]);
   useEffect(()=>{
     if(!session||!token||preview)return;
     const action=role==='student'?'student':role==='supervisor'?'supervisor':null;
@@ -273,15 +274,15 @@ export default function LivePortal() {
   if(restoring)return <PortalLoading fullPage label="Restoring your university session" detail="Verifying your secure sign-in and access permissions…"/>;
   if(!session)return <LiveLogin onToken={login}/>;
   const displayData=preview?preview.data:data;
-  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Prime Admins',faculty:'Faculty list',announcements:'News & events'})[page];
+  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrators',faculty:'Faculty list',announcements:'News & events'})[page];
   const exitPreview=()=>{clearLiveCache();setPreview(null);setPage('dashboard');setError('');};
   const awaitingData=dataBusy?<PortalLoading label="Loading your academic workspace" detail="Fetching records assigned to your verified university account…"/>:<section className="card"><p>We could not load your academic records. Please retry.</p><button className="lightbtn" type="button" onClick={()=>setDataAttempt(value=>value+1)}>Retry loading</button></section>;
   return <div className={`application ${role==='student'?'student-mode':role==='supervisor'?'supervisor-mode':''}`}>
     {networkVisible&&<div className="portal-request-bar" role="status" aria-label="Loading portal data"><span/></div>}
     <aside className={`sidebar ${drawer?'open':''}`}>
-      <div className="brand"><span className="brand-symbol">B</span><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
+      <div className="brand"><BrandLogo/><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
       <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{if(key==='rolepreview')setPreviewDialog(true);else setPage(key as LivePage);setDrawer(false);}}><Icon size={17}/>{label as string}</button>)}</nav></div>
-      <div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Prime Admin support preview':'Role-restricted access'}</small></span></div>
+      <div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Admin support preview':'Role-restricted access'}</small></span></div>
     </aside>
     {drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}
     <div className="main">
@@ -294,13 +295,13 @@ export default function LivePortal() {
           page==='resources'?<LiveResources token={token}/>:
           role==='student'?displayData?<StudentExperience data={displayData as StudentDashboard} page={page==='evaluations'?'evaluations':'dashboard'} onNavigate={setPage}/>:awaitingData:
           role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard}/>:awaitingData:
-          page==='dashboard'?(showPrimeControls?<PrimeOverview token={token} onNavigate={setPage} onPreview={()=>setPreviewDialog(true)}/>:<LiveSummary token={token}/>):
-          page==='search'?(showPrimeControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
+          page==='dashboard'?(showAdminControls?<PrimeOverview token={token} onNavigate={setPage}/>:<LiveSummary token={token}/>):
+          page==='search'?(showAdminControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
           page==='sources'?<LiveSources token={token} readOnly={!!preview}/>:
           page==='announcements'?<AdminAnnouncements token={token} readOnly={!!preview}/>:
-          page==='faculty'&&showPrimeControls?<PrimeFacultyList token={token}/>:
-          page==='admins'&&showPrimeControls?<LiveAdmins token={token}/>:null}
-        <footer className="footer"><GraduationCap size={16}/> BRAC University Thesis Evaluation Portal<span>Authorized access only</span></footer>
+          page==='faculty'&&showAdminControls?<PrimeFacultyList token={token}/>:
+          page==='admins'&&showAdminControls?<LiveAdmins token={token} currentEmail={session.email}/>:null}
+        <footer className="footer"><GraduationCap size={16}/> © {new Date().getFullYear()} UG Thesis Committee. All rights reserved.<span>BRAC University Thesis Evaluation Portal</span></footer>
       </main>
     </div>
     {(role==='student'||role==='supervisor')&&<nav className="student-mobile-nav" aria-label={`${role==='student'?'Student':'Supervisor'} quick navigation`}>{(role==='student'?([
@@ -308,6 +309,6 @@ export default function LivePortal() {
     ] as const):([
       ['dashboard','Groups',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],
     ] as const)).map(([key,label,Icon])=><button key={key} type="button" aria-current={page===key?'page':undefined} className={page===key?'selected':''} onClick={()=>{setPage(key);setDrawer(false);}}><Icon size={19}/><span>{label}</span></button>)}</nav>}
-    {previewDialog&&actualPrime&&<PrimePreviewDialog token={token} onClose={()=>setPreviewDialog(false)} onStart={result=>{clearLiveCache();setPreview(result);setPage('dashboard');setError('');}}/>}
+    {previewDialog&&actualAdmin&&<PrimePreviewDialog token={token} onClose={()=>setPreviewDialog(false)} onStart={result=>{clearLiveCache();setPreview(result);setPage('dashboard');setError('');}}/>}
   </div>;
 }

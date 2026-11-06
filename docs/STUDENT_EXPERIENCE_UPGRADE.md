@@ -1,5 +1,7 @@
 # Student workspace refresh and stage-aware deadlines
 
+**Role note:** Older references to “Prime Admin” now mean **Admin**, the only administrator role.
+
 **Historical documentation:** In v8, students see their own available marks and indexed comments independently without manual academic publication, and deadlines show P1/P2/Defense. See [`UPGRADE_V8.md`](UPGRADE_V8.md).
 
 The live student portal now prioritizes phones and shows four simple destinations: **Dashboard**, **My Evaluations**, **Deadlines**, and **Resources**. The student Profile item has been removed; Sign out remains available at the top and in the side menu. A fixed, four-button bottom navigation appears at narrow screen widths.

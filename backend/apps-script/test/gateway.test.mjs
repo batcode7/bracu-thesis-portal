@@ -121,7 +121,7 @@ test('zero is a recorded mark and a missing comment does not conceal it',()=>{
     assert.equal(result.evaluations.find(e=>e.phase==='Supervisor').score,0);
   }finally{context.marks_=old;}
 });
-test('Prime Admins appoint other Prime Admins; the founder is protected and the ordinary admin role is gone',()=>{
+test('any admin can appoint another admin, and the bootstrap account has no special protection',()=>{
   const oldLock=context.LockService;
   const oldDirectory=props.FACULTY_DIRECTORY_JSON;
   context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
@@ -130,19 +130,48 @@ test('Prime Admins appoint other Prime Admins; the founder is protected and the 
       {email:'faculty@bracu.ac.bd',names:['Faculty A'],initial:'FA'},
       {email:'other@bracu.ac.bd',names:['Faculty B'],initial:'FB'},
     ]);
-    assert.throws(()=>run('faculty@bracu.ac.bd','addPrimeAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
-    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addPrimeAdmin',{email:'unknown@bracu.ac.bd'}),/official Faculty Details/);
-    const result=run('partha.bhoumik@bracu.ac.bd','addPrimeAdmin',{email:'faculty@bracu.ac.bd'});
+    assert.throws(()=>run('faculty@bracu.ac.bd','addAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'unknown@bracu.ac.bd'}),/official Faculty Details/);
+    const result=run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'faculty@bracu.ac.bd'});
     assert.deepEqual(Array.from(result.admins),['partha.bhoumik@bracu.ac.bd','faculty@bracu.ac.bd']);
-    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','session').roles),['prime_admin','supervisor']);
-    assert.equal(run('faculty@bracu.ac.bd','addPrimeAdmin',{email:'other@bracu.ac.bd'}).admins.length,3);
-    assert.throws(()=>run('faculty@bracu.ac.bd','removePrimeAdmin',{email:'faculty@bracu.ac.bd'}),/cannot revoke your own/);
-    assert.throws(()=>run('faculty@bracu.ac.bd','removePrimeAdmin',{email:'partha.bhoumik@bracu.ac.bd'}),/protected founding/);
-    const removed=run('partha.bhoumik@bracu.ac.bd','removePrimeAdmin',{email:'faculty@bracu.ac.bd'});
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','session').roles),['admin','supervisor']);
+    assert.equal(run('faculty@bracu.ac.bd','addAdmin',{email:'other@bracu.ac.bd'}).admins.length,3);
+    assert.deepEqual(Array.from(run('other@bracu.ac.bd','session').roles),['admin','supervisor']);
+    assert.equal(run('faculty@bracu.ac.bd','admins').admins.length,run('other@bracu.ac.bd','admins').admins.length);
+    assert.throws(()=>run('faculty@bracu.ac.bd','removeAdmin',{email:'faculty@bracu.ac.bd'}),/cannot revoke your own/);
+    // Every administrator has equal powers, including removing the original admin.
+    const afterFounder=run('faculty@bracu.ac.bd','removeAdmin',{email:'partha.bhoumik@bracu.ac.bd'});
+    assert.equal(afterFounder.admins.includes('partha.bhoumik@bracu.ac.bd'),false);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','session'),/not authorized/i);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'faculty@bracu.ac.bd'}),/not authorized/i);
+    const removed=run('other@bracu.ac.bd','removeAdmin',{email:'faculty@bracu.ac.bd'});
     assert.equal(removed.admins.includes('faculty@bracu.ac.bd'),false);
     assert.equal(run('faculty@bracu.ac.bd','session').role,'supervisor');
-    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'admin@bracu.ac.bd'}),/Unknown API action/);
-  }finally{context.LockService=oldLock;props.FACULTY_DIRECTORY_JSON=oldDirectory;delete props.PRIME_ADMIN_EMAILS_JSON;delete props.PRIME_ROLE_AUDIT_JSON;}
+    assert.throws(()=>run('other@bracu.ac.bd','removeAdmin',{email:'other@bracu.ac.bd'}),/cannot revoke your own/);
+    assert.throws(()=>run('other@bracu.ac.bd','primeAdmins'),/Unknown API action/);
+  }finally{context.LockService=oldLock;props.FACULTY_DIRECTORY_JSON=oldDirectory;delete props.ADMIN_ROLE_LIST_JSON;delete props.ADMIN_ROLE_AUDIT_JSON;}
+});
+test('previously delegated admin emails migrate as equal administrators on the first role edit',()=>{
+  const previousDirectory=props.FACULTY_DIRECTORY_JSON,previousLock=context.LockService;
+  context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
+  try{
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([
+      {email:'legacy@bracu.ac.bd',names:['Legacy Faculty'],initial:'LF'},
+      {email:'new@bracu.ac.bd',names:['New Faculty'],initial:'NF'},
+    ]);
+    props.PRIME_ADMIN_EMAILS_JSON=JSON.stringify(['legacy@bracu.ac.bd']);
+    props.ADMIN_EMAILS_JSON=JSON.stringify(['oldadmin@bracu.ac.bd']);
+    assert.deepEqual(Array.from(run('legacy@bracu.ac.bd','session').roles),['admin','supervisor']);
+    const granted=run('legacy@bracu.ac.bd','addAdmin',{email:'new@bracu.ac.bd'});
+    assert.deepEqual(Array.from(granted.admins),['partha.bhoumik@bracu.ac.bd','oldadmin@bracu.ac.bd','legacy@bracu.ac.bd','new@bracu.ac.bd']);
+    assert.deepEqual(JSON.parse(props.ADMIN_ROLE_LIST_JSON),['partha.bhoumik@bracu.ac.bd','oldadmin@bracu.ac.bd','legacy@bracu.ac.bd','new@bracu.ac.bd']);
+    const revoked=run('new@bracu.ac.bd','removeAdmin',{email:'legacy@bracu.ac.bd'});
+    assert.equal(revoked.admins.includes('legacy@bracu.ac.bd'),false);
+    assert.throws(()=>run('legacy@bracu.ac.bd','admins'),/Not authorized/);
+  }finally{
+    context.LockService=previousLock;props.FACULTY_DIRECTORY_JSON=previousDirectory;
+    delete props.PRIME_ADMIN_EMAILS_JSON;delete props.ADMIN_EMAILS_JSON;delete props.ADMIN_ROLE_LIST_JSON;delete props.ADMIN_ROLE_AUDIT_JSON;
+  }
 });
 test('blank indexed evaluator comments cannot override a master comment or conceal official marks',()=>{
   const blank=[...evaluations,{...evaluations[0],evaluator:'Judge C',comment:''}];
@@ -157,13 +186,22 @@ test('unregistered Workspace emails and consumer Gmail do not become portal user
   assert.throws(()=>run('unknown@bracu.ac.bd','session'),/not authorized/);
   assert.throws(()=>run('first@gmail.com','session'),/verified BRAC identity/);
 });
+test('a shared email never authenticates to an arbitrary student ID',()=>{
+  const previous=students[1].email;
+  students[1].email='first@g.bracu.ac.bd';
+  try{
+    assert.equal(context.roles_('first@g.bracu.ac.bd',students).includes('student'),false);
+    assert.throws(()=>run('first@g.bracu.ac.bd','student'),/not authorized/i);
+    assert.throws(()=>run('first@g.bracu.ac.bd','session'),/not authorized/i);
+  }finally{students[1].email=previous;}
+});
 test('obsolete academic publishing action cannot be called',()=>{
   context.comments_=()=>[{...evaluations[1],comment:''}];
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','release',{semester:'Summer 2026',phase:'P2',published:true}),/Unknown API action/);
   assert.equal(run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P2').score,8);
   context.comments_=()=>evaluations;
 });
-test('Prime Admin cannot register panel links; registry is read only from Thesis Master',()=>{
+test('Admins cannot register panel links; registry is read only from Thesis Master',()=>{
   const sources=run('partha.bhoumik@bracu.ac.bd','registry').sources;
   assert.deepEqual(Array.from(sources,s=>s.semester),['Spring 2025','Summer 2026']);
   assert.equal(sources[1].spreadsheetId,'1Z882cDXwrQwuMgbSFF3CQmqyWXuAXq8U3Thn7569QTU');
@@ -201,7 +239,7 @@ test('admin semester stats count synced students once, independent of manual pub
   assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[1].P2.students,1);
   context.comments_=()=>evaluations;
 });
-test('only the Prime Administrator can preview another role, and previews are read only',()=>{
+test('only administrators can preview another role, and previews are read only',()=>{
   assert.throws(()=>run('admin@bracu.ac.bd','previewCandidates'),/Not authorized/);
   const options=run('partha.bhoumik@bracu.ac.bd','previewCandidates');
   assert.equal(options.faculty[0].email,'faculty@bracu.ac.bd');
@@ -214,13 +252,13 @@ test('only the Prime Administrator can preview another role, and previews are re
   assert.equal(student.data.evaluations.find(e=>e.phase==='P2').score,8);
   const supervisor=run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'faculty@bracu.ac.bd'});
   assert.deepEqual(Array.from(supervisor.data.groups,g=>g.id),['T2530123']);
-  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'}),/Invalid preview role/);
-  const prime=run('partha.bhoumik@bracu.ac.bd','preview',{role:'prime_admin'});
-  assert.equal(prime.role,'prime_admin');assert.equal(prime.data,null);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'prime_admin'}),/Invalid preview role/);
+  const admin=run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'});
+  assert.equal(admin.role,'admin');assert.equal(admin.data,null);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'unknown@g.bracu.ac.bd'}),/No student record/);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'unknown@bracu.ac.bd'}),/Faculty email not in/);
 });
-test('Prime overview distinguishes actual master records from synchronized semester statistics',()=>{
+test('Admin overview distinguishes actual master records from synchronized semester statistics',()=>{
   const previous=context.rows_;
   context.rows_=(id,tab,width)=>tab==='All student info'?[['','22101234','First','T2530123',''],['','22104567','Second','T2530124','']]:tab==='Group info'?[['','T2530123','Thesis','Pre-Thesis 2'],['','T2530124','Project','Final Thesis']]:previous(id,tab,width);
   try{
@@ -257,7 +295,7 @@ test('administrative searches paginate all registered students instead of hiding
   assert.equal(first.total,205);assert.equal(first.rows.length,100);
   assert.equal(third.rows.length,5);assert.equal(third.rows[0].student.id,roster[200].id);
 });
-test('Prime Admin type-ahead resolves partial student, faculty, and group queries safely',()=>{
+test('Admin type-ahead resolves partial student, faculty, and group queries safely',()=>{
   const old=props.FACULTY_DIRECTORY_JSON;
   try{
     props.FACULTY_DIRECTORY_JSON=JSON.stringify([{email:'partha.bhoumik@bracu.ac.bd',names:['Mr. Partha Bhoumik'],initial:'PB'}]);
@@ -289,7 +327,7 @@ test('Prime Admin type-ahead resolves partial student, faculty, and group querie
     assert.throws(()=>run('admin@bracu.ac.bd','suggest',{q:'par'}),/not authorized/);
   }finally{props.FACULTY_DIRECTORY_JSON=old;}
 });
-test('faculty inline edits require Prime Admin, reject conflicts, and audit exact source cells',()=>{
+test('faculty inline edits require Admin, reject conflicts, and audit exact source cells',()=>{
   const original={spreadsheet:context.SpreadsheetApp,lock:context.LockService};
   const source=[['Initial','Name','Designation','Status','Room','Email'],['FA','Faculty A','Lecturer','Active','4A20','faculty@bracu.ac.bd'],['FB','Faculty B','Professor','Active','4A21','other@bracu.ac.bd']];
   const auditRows=[];
@@ -368,7 +406,7 @@ test('deadline source keeps general, P1 and early-defense deadlines and retains 
   } finally {context.SpreadsheetApp=previous;}
 });
 
-test('students see general and their own stage; faculty and Prime Admins see all deadlines',()=>{
+test('students see general and their own stage; faculty and admins see all deadlines',()=>{
   const old=context.academicInformation_;
   context.academicInformation_=()=>({deadlines:[
     {id:'g',phase:'General',title:'General reference'},

@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
-import { ArrowRight, BookOpenCheck, CheckCircle2, GraduationCap, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { BookOpenCheck, CheckCircle2, GraduationCap, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { PublicAnnouncements } from './Announcements';
+import { BrandLogo } from './BrandLogo';
 
 export function PortalWelcome({ children, isDemo = false }: { children: ReactNode; isDemo?: boolean }) {
   return <div className="portal-welcome">
     <header className="welcome-header">
-      <div className="welcome-brand"><span className="welcome-mark">B</span><div><strong>BRAC University</strong><small>CSE · Thesis Evaluation Portal</small></div></div>
+      <div className="welcome-brand"><BrandLogo landing/><div><strong>BRAC University</strong><small>CSE · Thesis Evaluation Portal</small></div></div>
       <span className="welcome-security"><LockKeyhole size={13}/> University access</span>
     </header>
     <main className="welcome-main">
@@ -31,6 +32,6 @@ export function PortalWelcome({ children, isDemo = false }: { children: ReactNod
       </section>
     </main>
     <PublicAnnouncements isDemo={isDemo} />
-    <footer className="welcome-bottom"><span>BRAC University · Department of Computer Science and Engineering</span><span>Academic records · Authorized access only <ArrowRight size={13}/></span></footer>
+    <footer className="welcome-bottom"><span>© {new Date().getFullYear()} UG Thesis Committee. All rights reserved.</span><span>BRAC University · Department of Computer Science and Engineering</span></footer>
   </div>;
 }

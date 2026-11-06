@@ -5,7 +5,9 @@
  *
  * This project does NOT edit the university's source spreadsheets.
  */
-var PRIME_ADMIN_EMAIL = 'partha.bhoumik@bracu.ac.bd';
+// Initial administrator for existing deployments. Once ADMIN_ROLE_LIST_JSON is
+// written, every administrator is governed by the same editable role list.
+var BOOTSTRAP_ADMIN_EMAIL = 'partha.bhoumik@bracu.ac.bd';
 var DEFAULT_MASTER_ID = '1Zx2ZJoFTHl8VVIxHklX6EXUVzTJuY1xwg3zVDSfclqU';
 var DEFAULT_DEADLINES_ID = '1SkyO77YFde-N4bpxQ5lb07FH24hFINyR4JBgD47Xamk';
 var COMMENT_HEADERS = ['Semester','Phase','ThesisID','MemberKey','Score','Comment','Evaluator','SourceID','SyncedAt'];
@@ -39,11 +41,18 @@ function facultyMatches_(name,directory) {
 function verifiedFaculty_(name,directory) {
   var matches=facultyMatches_(name,directory);return matches.length===1?matches[0]:null;
 }
-function primeAdminEmails_() {
-  var extra=jsonProp_('PRIME_ADMIN_EMAILS_JSON',[]);
-  return [PRIME_ADMIN_EMAIL].concat(Array.isArray(extra)?extra:[]).map(norm_).filter(function(e,i,a){return validBracEmail_(e)&&a.indexOf(e)===i;});
+function adminEmails_() {
+  // Migrate the original admin, older regular admins, and delegated prime admins.
+  // The new property is authoritative after the first edit; the founder can
+  // then be removed without reappearing through a legacy fallback property.
+  var saved=jsonProp_('ADMIN_ROLE_LIST_JSON',null);
+  var oldAdmins=jsonProp_('ADMIN_EMAILS_JSON',[]);
+  var oldPrimeAdmins=jsonProp_('PRIME_ADMIN_EMAILS_JSON',[]);
+  var list=Array.isArray(saved)?saved:[BOOTSTRAP_ADMIN_EMAIL]
+    .concat(Array.isArray(oldAdmins)?oldAdmins:[],Array.isArray(oldPrimeAdmins)?oldPrimeAdmins:[]);
+  return list.map(norm_).filter(function(e,i,a){return validBracEmail_(e)&&a.indexOf(e)===i;});
 }
-function root_(email) { return primeAdminEmails_().indexOf(norm_(email))>=0; }
+function isAdmin_(email) { return adminEmails_().indexOf(norm_(email))>=0; }
 function validBracEmail_(email) { return /^[a-z0-9._%+\-]+@(?:g\.)?bracu\.ac\.bd$/i.test(email); }
 function refuse_(message) { throw new Error(message); }
 function assert_(condition, message) { if (!condition) refuse_(message); }
@@ -113,7 +122,7 @@ function semesterName_(value) {
   return match[1].charAt(0).toUpperCase()+match[1].slice(1).toLowerCase()+' 20'+match[3];
 }
 function sourceRegistry_() {
-  // Always read the master registry: Prime Admin no longer registers links via the portal.
+  // Always read the master registry: admins do not register links via the portal.
   var result=[],seen={};
   rows_(masterId_(),'Panel Manager Links',2).slice(1).forEach(function(r){
     var semester=semesterName_(r[0]),url=String(r[1]||'').trim();
@@ -191,7 +200,7 @@ function facultyList_(groupRows) {
 }
 function roles_(email,studentRows) {
   var roles=[];
-  if(root_(email))roles.push('prime_admin');
+  if(isAdmin_(email))roles.push('admin');
   if(facultyDirectory_().some(function(item){return norm_(item.email)===email;}))roles.push('supervisor');
   // A verified email must resolve to exactly one Student ID. The upstream
   // source may reuse an email for multiple IDs; never pick the first student.
@@ -205,9 +214,9 @@ function roles_(email,studentRows) {
 function role_(email,studentRows) { return roles_(email,studentRows)[0]||null; }
 function permission_(role, needed) { assert_(needed.indexOf(role) !== -1, 'Not authorized for this action'); }
 function auditPreview_(actor,role,target) {
-  var events=jsonProp_('PRIME_PREVIEW_AUDIT_JSON',[]);
+  var events=jsonProp_('ADMIN_PREVIEW_AUDIT_JSON',[]);
   events.push({at:new Date().toISOString(),actor:actor,role:role,target:target});
-  setJsonProp_('PRIME_PREVIEW_AUDIT_JSON',events.slice(-24));
+  setJsonProp_('ADMIN_PREVIEW_AUDIT_JSON',events.slice(-24));
 }
 function facultyGroups_(email, groupRows) {
   var directory=facultyDirectory_(),faculty = directory.filter(function(f){return norm_(f.email) === email;})[0];
@@ -576,14 +585,14 @@ function request_(body) {
   var principal=body.principal||{},email=norm_(principal.email);
   assert_(!!principal.sub && validBracEmail_(email),'A verified BRAC identity is required');
   if(action==='previewCandidates'){
-    permission_(root_(email)?'prime_admin':null,['prime_admin']);
+    permission_(isAdmin_(email)?'admin':null,['admin']);
     try{refreshFacultyDirectory_(false);}catch(_){/* Use last verified snapshot. */}
     return {faculty:facultyDirectory_().map(function(f){return {email:f.email,name:facultyDisplayName_(f.names[0]||f.email),initial:f.initial||'',room:f.room||'',designation:f.designation||''};}).sort(function(a,b){return facultyDisplaySortKey_(a.name).localeCompare(facultyDisplaySortKey_(b.name))||a.email.localeCompare(b.email);})};
   }
   // Publishing requires only the verified administrator identity. Avoid loading
   // large academic master tabs for every visit to the news editor.
   if(['announcements','saveAnnouncement','statusAnnouncement'].indexOf(action)>=0){
-    permission_(root_(email)?'prime_admin':null,['prime_admin']);
+    permission_(isAdmin_(email)?'admin':null,['admin']);
     if(action==='announcements')return {items:announcements_()};
     if(action==='saveAnnouncement')return saveAnnouncement_(p,email);
     return statusAnnouncement_(p);
@@ -613,16 +622,16 @@ function request_(body) {
     return {entries:entries};
   }
   if(action==='resources')return {items:academicInformation_().resources};
-  if(action==='suggest'){permission_(role,['prime_admin']);return suggestAcademic_(p.q,studentRows,groupRows,p.kind);}
-  if(action==='search'){permission_(role,['prime_admin']);return adminSearch_(p.q,p.stage,p.type,studentRows,groupRows,p.offset,p.facultyEmail);}
-  if(action==='detail'){permission_(role,['prime_admin']);return adminDetail_(p.studentId,studentRows,groupRows);}
-  if(action==='summary'){permission_(role,['prime_admin']);return {semesters:summary_(studentRows)};}
-  if(action==='overview'){permission_(role,['prime_admin']);return overview_(studentRows,groupRows);}
+  if(action==='suggest'){permission_(role,['admin']);return suggestAcademic_(p.q,studentRows,groupRows,p.kind);}
+  if(action==='search'){permission_(role,['admin']);return adminSearch_(p.q,p.stage,p.type,studentRows,groupRows,p.offset,p.facultyEmail);}
+  if(action==='detail'){permission_(role,['admin']);return adminDetail_(p.studentId,studentRows,groupRows);}
+  if(action==='summary'){permission_(role,['admin']);return {semesters:summary_(studentRows)};}
+  if(action==='overview'){permission_(role,['admin']);return overview_(studentRows,groupRows);}
   if(action==='preview'){
-    permission_(role,['prime_admin']);
+    permission_(role,['admin']);
     var previewRole=String(p.role||''),target=norm_(p.email);
-    assert_(['prime_admin','student','supervisor'].indexOf(previewRole)>=0,'Invalid preview role');
-    if(previewRole==='prime_admin'){
+    assert_(['admin','student','supervisor'].indexOf(previewRole)>=0,'Invalid preview role');
+    if(previewRole==='admin'){
       auditPreview_(email,previewRole,email);return {role:previewRole,email:email,data:null};
     }
     assert_(validBracEmail_(target),'Enter a BRAC University email for the preview');
@@ -638,11 +647,11 @@ function request_(body) {
     auditPreview_(email,previewRole,target);
     return {role:previewRole,email:target,data:facultyPreview};
   }
-  if(action==='registry'){permission_(role,['prime_admin']);return {sources:sourceRegistry_()};}
-  if(action==='primeAdmins'){permission_(role,['prime_admin']);return {admins:primeAdminEmails_(),protected:PRIME_ADMIN_EMAIL};}
-  if(action==='aliases'){permission_(role,['prime_admin']);return {aliases:jsonProp_('STUDENT_ALIASES_JSON',{})};}
+  if(action==='registry'){permission_(role,['admin']);return {sources:sourceRegistry_()};}
+  if(action==='admins'){permission_(role,['admin']);return {admins:adminEmails_()};}
+  if(action==='aliases'){permission_(role,['admin']);return {aliases:jsonProp_('STUDENT_ALIASES_JSON',{})};}
   if(action==='setAlias'||action==='removeAlias'){
-    permission_(role,['prime_admin']);var aliasEmail=norm_(p.email),studentId=String(p.studentId||'').trim();
+    permission_(role,['admin']);var aliasEmail=norm_(p.email),studentId=String(p.studentId||'').trim();
     assert_(validBracEmail_(aliasEmail),'Invalid university email');
     var aliases=jsonProp_('STUDENT_ALIASES_JSON',{});
     if(action==='setAlias'){
@@ -652,39 +661,40 @@ function request_(body) {
     }else{delete aliases[aliasEmail];}
     setJsonProp_('STUDENT_ALIASES_JSON',aliases);return {aliases:aliases};
   }
-  if(action==='addPrimeAdmin'||action==='removePrimeAdmin'){
-    permission_(role,['prime_admin']);var target=norm_(p.email);
+  if(action==='addAdmin'||action==='removeAdmin'){
+    permission_(role,['admin']);var target=norm_(p.email);
     assert_(target.endsWith('@bracu.ac.bd')&&validBracEmail_(target),'A verified university faculty email is required');
-    if(action==='addPrimeAdmin')assert_(facultyDirectory_().some(function(item){return item.email===target;}),'Prime Admin must belong to the official Faculty Details directory');
-    assert_(target!==PRIME_ADMIN_EMAIL,'The protected founding Prime Admin cannot be removed or modified');
-    assert_(action!=='removePrimeAdmin'||target!==email,'You cannot revoke your own Prime Admin access');
-    var lock=LockService.getScriptLock();assert_(lock.tryLock(10000),'Prime Admin update already in progress');
+    if(action==='addAdmin')assert_(facultyDirectory_().some(function(item){return item.email===target;}),'Administrator must belong to the official Faculty Details directory');
+    assert_(action!=='removeAdmin'||target!==email,'You cannot revoke your own admin access');
+    var lock=LockService.getScriptLock();assert_(lock.tryLock(10000),'Administrator update already in progress');
     try {
-      var admins=primeAdminEmails_().filter(function(x){return x!==target&&x!==PRIME_ADMIN_EMAIL;});
-      if(action==='addPrimeAdmin')admins.push(target);
-      setJsonProp_('PRIME_ADMIN_EMAILS_JSON',admins);
-      var audit=jsonProp_('PRIME_ROLE_AUDIT_JSON',[]);audit.push({at:new Date().toISOString(),actor:email,target:target,action:action});
-      setJsonProp_('PRIME_ROLE_AUDIT_JSON',audit.slice(-60));
-      return {admins:primeAdminEmails_(),protected:PRIME_ADMIN_EMAIL};
+      // Re-read inside the lock so simultaneous grants cannot lose updates.
+      var admins=adminEmails_().filter(function(x){return x!==target;});
+      if(action==='addAdmin')admins.push(target);
+      assert_(admins.length>0,'The portal must retain at least one administrator');
+      setJsonProp_('ADMIN_ROLE_LIST_JSON',admins);
+      var audit=jsonProp_('ADMIN_ROLE_AUDIT_JSON',[]);audit.push({at:new Date().toISOString(),actor:email,target:target,action:action});
+      setJsonProp_('ADMIN_ROLE_AUDIT_JSON',audit.slice(-60));
+      return {admins:adminEmails_()};
     }finally{lock.releaseLock();}
   }
-  if(action==='faculty'){permission_(role,['prime_admin']);return {faculty:facultyDirectory_()};}
+  if(action==='faculty'){permission_(role,['admin']);return {faculty:facultyDirectory_()};}
   if(action==='facultyList'){
-    permission_(role,['prime_admin']);var warning='';
+    permission_(role,['admin']);var warning='';
     try{refreshFacultyDirectory_(false);}catch(err){warning='Automatic faculty refresh unavailable; showing the last verified directory.';}
     var listing=facultyList_(groupRows);
     return {faculty:listing,updatedAt:prop_('FACULTY_AUTO_UPDATED',''),warning:warning,matched:listing.filter(function(f){return !!f.email;}).length,missing:listing.filter(function(f){return !f.email;}).length};
   }
   if(action==='updateFaculty'){
-    permission_(role,['prime_admin']);return updateFacultyField_(p,email);
+    permission_(role,['admin']);return updateFacultyField_(p,email);
   }
   if(action==='setFaculty'){
-    permission_(role,['prime_admin']);var facEmail=norm_(p.email),name=String(p.name||'').trim(),initial=String(p.initial||'').trim().toUpperCase();
+    permission_(role,['admin']);var facEmail=norm_(p.email),name=String(p.name||'').trim(),initial=String(p.initial||'').trim().toUpperCase();
     assert_(validBracEmail_(facEmail)&&name.length>3&&name.length<180&&/^[A-Z0-9]{2,10}$/.test(initial),'Invalid faculty mapping');
     var directory=facultyDirectory_().filter(function(x){return norm_(x.email)!==facEmail;});directory.push({email:facEmail,names:[name],initial:initial});setJsonProp_('FACULTY_DIRECTORY_JSON',directory);return {faculty:directory};
   }
-  if(action==='sync'){permission_(role,['prime_admin']);return syncPhase_(String(p.semester||''),String(p.phase||''));}
-  if(action==='restartSync'){permission_(role,['prime_admin']);return restartSync_(String(p.semester||''),String(p.phase||''));}
+  if(action==='sync'){permission_(role,['admin']);return syncPhase_(String(p.semester||''),String(p.phase||''));}
+  if(action==='restartSync'){permission_(role,['admin']);return restartSync_(String(p.semester||''),String(p.phase||''));}
   refuse_('Unknown API action');
 }
 function doPost(e) {

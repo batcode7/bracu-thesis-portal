@@ -4,18 +4,18 @@ This update adds a restrained **News & events** bulletin beneath the BRACU Googl
 
 ## Roles and permissions
 
-| Action | Visitor | Student / Supervisor | Regular Admin | Prime Admin |
-| --- | --- | --- | --- | --- |
-| Read published notices on landing page | Yes | Yes | Yes | Yes |
-| Open internal announcements list | No | No | Yes | Yes |
-| Create draft, publish, unpublish, archive | No | No | Yes | Yes |
-| Manage announcements while Prime Admin is previewing another role | No | No | No | No; preview is read-only |
+| Action | Visitor | Student / Supervisor | Admin |
+| --- | --- | --- | --- |
+| Read published notices on landing page | Yes | Yes | Yes |
+| Open internal announcements list | No | No | Yes |
+| Create draft, publish, unpublish, archive | No | No | Yes |
+| Manage announcements during read-only role preview | No | No | No; preview is read-only |
 
 The backend checks the authenticated Google identity and role before allowing any editor action. Browser-supplied roles are ignored. The publicly accessible feed returns only title, description, category, date, location, optional HTTPS link, pin flag, identifier, and update time. It excludes authors, drafts, archived items, academic records, and permission data.
 
 ## How to publish
 
-1. Log in with a regular administrator or Prime Administrator account.
+1. Log in with an administrator account.
 2. Select **News & Events** in the left navigation.
 3. Select **New**. Choose **Notice**, **Event**, **News**, or **Deadline**.
 4. Add a title and description. Optionally set an event date, location, trusted HTTPS link, and **Feature this announcement first**.

@@ -1,4 +1,4 @@
-export type Role = 'student' | 'supervisor' | 'admin' | 'prime_admin';
+export type Role = 'student' | 'supervisor' | 'admin';
 export type Phase = 'P1' | 'P2' | 'Defense' | 'Supervisor';
 export type Publication = 'published' | 'pending';
 export type GroupStage = 'Pre-Thesis 1' | 'Pre-Thesis 2' | 'Final Thesis' | 'Completed' | 'Deferred';
