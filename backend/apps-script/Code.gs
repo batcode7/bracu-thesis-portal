@@ -193,7 +193,13 @@ function roles_(email,studentRows) {
   var roles=[];
   if(root_(email))roles.push('prime_admin');
   if(facultyDirectory_().some(function(item){return norm_(item.email)===email;}))roles.push('supervisor');
-  if(studentRows.some(function(item){return item.email===email||item.aliases.indexOf(email)>=0;}))roles.push('student');
+  // A verified email must resolve to exactly one Student ID. The upstream
+  // source may reuse an email for multiple IDs; never pick the first student.
+  var studentIds={};
+  studentRows.forEach(function(item){
+    if(item.email===email||(item.aliases||[]).indexOf(email)>=0)studentIds[item.id]=true;
+  });
+  if(Object.keys(studentIds).length===1)roles.push('student');
   return roles;
 }
 function role_(email,studentRows) { return roles_(email,studentRows)[0]||null; }

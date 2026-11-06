@@ -18,15 +18,31 @@ function d1Snapshot_() {
     put('faculty',f.email,{email:f.email,name:display,names:f.names||[],initial:f.initial||'',designation:f.designation||'',room:f.room||'',status:f.status||''},f.email,'','',display);
     (f.names||[]).forEach(function(name){var key=facultyKey_(name);if(key){if(normalizedFaculty[key]&&normalizedFaculty[key]!==f.email)normalizedFaculty[key]='AMBIGUOUS';else if(!normalizedFaculty[key])normalizedFaculty[key]=f.email;}});
   });
+  // Student IDs are unique records. Email addresses are only login indexes:
+  // an upstream typo must not block a complete D1 snapshot or grant access
+  // to an arbitrary student's private information.
   var byEmail={};
   students.forEach(function(s){
     put('student',s.id,{id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,aliases:s.aliases||[],marks:allMarks[s.id]||{}},'',s.thesisId,'',s.name);
     [s.email].concat(s.aliases||[]).forEach(function(address){
       address=norm_(address);if(!validBracEmail_(address))return;
-      assert_(!byEmail[address]||byEmail[address]===s.id,'Duplicate student email in master: '+address);
-      if(!byEmail[address]){byEmail[address]=s.id;put('student_email',address,{studentId:s.id},address,s.thesisId,'','');}
+      if(!byEmail[address])byEmail[address]=[];
+      if(byEmail[address].indexOf(s.id)<0)byEmail[address].push(s.id);
     });
   });
+  var studentById={};students.forEach(function(s){studentById[s.id]=s;});
+  var collisions=[];
+  Object.keys(byEmail).sort().forEach(function(address){
+    var ids=byEmail[address];
+    if(ids.length>1){collisions.push({email:address,studentIds:ids});return;}
+    var student=studentById[ids[0]];
+    put('student_email',address,{studentId:student.id},address,student.thesisId,'','');
+  });
+  // The list remains visible in Apps Script > Project Settings > Script
+  // Properties. Only unambiguous emails are eligible for student login.
+  scriptProps_().setProperty('D1_EMAIL_COLLISION_COUNT',String(collisions.length));
+  scriptProps_().setProperty('D1_EMAIL_COLLISIONS_JSON',JSON.stringify(collisions.slice(0,40)));
+  if(collisions.length)Logger.log('D1 sync skipped ambiguous login emails ('+collisions.length+'): '+JSON.stringify(collisions.slice(0,40)));
   groups.forEach(function(g){
     var memberSlots=[{slot:'Supervisor 1',name:g.primarySupervisor,role:'Supervisor'},{slot:'Supervisor 2',name:g.secondarySupervisor,role:'Supervisor'},
       {slot:'Co-supervisor 1',name:g.coSupervisor1,role:'Co-Supervisor'},{slot:'Co-supervisor 2',name:g.coSupervisor2,role:'Co-Supervisor'}],contacts=[],assignments={};
