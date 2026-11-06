@@ -433,13 +433,44 @@ test('deadline source keeps general, P1 and early-defense deadlines and retains 
   const previous=context.SpreadsheetApp;
   const rows=[['ALL','Information update','Monday','21 September','Expired','Click here'],['Pre-Thesis 1','Report submission','Friday','7 October','Expired','Click here'],['','Poster submission','Saturday','8 October','Reference','Link'],['Early Defense','Early Defense form','Tuesday','12 October','Expired','Link']];
   const rich=rows.map((row,i)=>row.map((_,j)=>({getLinkUrl:()=>j===5&&i===1?'https://forms.gle/example':null,getRuns:()=>[]})));
-  context.SpreadsheetApp={openById:()=>({getSheetByName:()=>({getLastRow:()=>5,getRange:()=>({getDisplayValues:()=>rows,getRichTextValues:()=>rich})})})};
+  const resources=[['Title','Data'],['UG Thesis Policy','https://example.org/policy']];
+  context.SpreadsheetApp={openById:()=>({getSheetByName:name=>({getLastRow:()=>name==='Resources'?resources.length:5,getRange:()=>({getDisplayValues:()=>name==='Resources'?resources:rows,getRichTextValues:()=>name==='Resources'?[]:rich})})})};
   try {
     const result=run('partha.bhoumik@bracu.ac.bd','deadlines').entries;
     assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1','Defense']);
     assert.equal(result[1].url,'https://forms.gle/example');
     assert.match(result[3].title,/Early Defense/);
   } finally {context.SpreadsheetApp=previous;}
+});
+
+test('only the Thesis Master Resources Title/Data rows become portal resources',()=>{
+  const previous=context.SpreadsheetApp;
+  const resourceRows=[
+    ['Title','Data'],
+    ['Special Application Submission Form/Internship Offer Letter','https://docs.google.com/forms/d/e/EXAMPLE/viewform'],
+    ['Information Update Google Form/Thesis Defer Form','https://docs.google.com/forms/d/e/EXAMPLE/closedform'],
+    ['Thesis Template Fall 2024 onwards','https://drive.google.com/file/d/EXAMPLE/view'],
+    ['Marking Rubric','https://docs.google.com/spreadsheets/d/EXAMPLE/edit'],
+    ['UG Thesis Policy','https://docs.google.com/document/d/EXAMPLE/edit'],
+    ['Tutorial on Thesis Template','https://www.youtube.com/watch?v=EXAMPLE'],
+    ['','https://example.org/ignored']
+  ];
+  const deadlines=[['ALL','A deadline','','21 September','','']];
+  let readResource=false;
+  context.SpreadsheetApp={openById:()=>({getSheetByName:name=>{
+    if(name==='Resources')readResource=true;
+    const source=name==='Resources'?resourceRows:deadlines;
+    return {getLastRow:()=>source.length+(name==='Resources'?0:1),getRange:()=>({getDisplayValues:()=>source,getRichTextValues:()=>source.map(row=>row.map(()=>({getLinkUrl:()=>null,getRuns:()=>[]})))})};
+  }})};
+  try{
+    const list=context.masterResources_();
+    assert.equal(readResource,true);
+    assert.equal(list.length,6);
+    assert.deepEqual(Array.from(list,item=>item.title),resourceRows.slice(1,7).map(row=>row[0]));
+    assert.equal(list[5].url,'https://www.youtube.com/watch?v=EXAMPLE');
+    assert.equal(list.every(item=>item.phase==='General'),true);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','resources').items.length,6);
+  }finally{context.SpreadsheetApp=previous;}
 });
 
 test('students see general and their own stage; faculty and admins see all deadlines',()=>{

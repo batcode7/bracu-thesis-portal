@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, ClipboardCopy, Clock3, Database, Eye, FileSearch, GraduationCap, LoaderCircle, Search, Users, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, ClipboardCopy, Clock3, Eye, LoaderCircle, Search, Users, X } from 'lucide-react';
 import { cachedLiveRequest, clearLiveCache, liveRequest } from './live-api';
 import PortalLoading from './PortalLoading';
 import { Pagination, type PageSize } from './Pagination';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 
-type Phase = 'P1' | 'P2' | 'Defense';
-type Completion = { students: number; groups: number };
-type SemesterSummary = { semester: string; students: number; groups: number; P1: Completion; P2: Completion; Defense: Completion };
-type SemesterStatus = { semester: string; phases: Array<{ phase: Phase; indexed: boolean }> };
-type Overview = { students: number; groups: number; recorded: Record<Phase, number>; semesters: SemesterSummary[]; sourceStatus: SemesterStatus[]; lastSyncedAt: string;
-  diagnostics?:{sourceStudents:number;sourceGroups:number;validStudents:number;validGroups:number;invalidStudentIds:number;invalidGroupIds:number;unmatchedStudents:number;stageGroups:Record<string,number>;stageStudents:Record<string,number>;types:Record<string,number>} };
 type DirectoryRow = { student: { id: string; name: string; email: string; thesisId: string }; group: ThesisGroup };
 type ThesisGroup = { id: string; title: string; type: string; stage: string; primarySupervisor: string; secondarySupervisor?: string; coSupervisor1?: string; coSupervisor2?: string };
 type Detail = DirectoryRow & { members: Array<{ id: string; name: string; email: string }>; marks: Record<string, number | string | null>; evaluations:Array<{id:string;phase:string;semester:string;comment:string|null}> };
@@ -19,7 +13,6 @@ type FacultyResult = { faculty: FacultyRow[]; matched: number; missing: number; 
 type AcademicSuggestion = {kind:'student'|'faculty'|'group';id:string;label:string;detail:string;email?:string};
 export type RolePreview = { role: 'admin' | 'student' | 'supervisor'; email: string; data: StudentDashboard | SupervisorDashboard | null };
 
-const phaseNames: Record<Phase, string> = { P1: 'Pre-Thesis 1', P2: 'Pre-Thesis 2', Defense: 'Final Defense' };
 const friendlyDate = (value: string) => {
   if (!value) return 'No completed synchronization recorded';
   const parsed = new Date(value);
@@ -30,74 +23,6 @@ function LoadingLines({ label = 'Retrieving academic records' }: { label?: strin
   return <PortalLoading label={label} detail="Retrieving verified university information…"/>;
 }
 
-function Metric({ title, count, description, icon: Icon }: { title: string; count: number; description: string; icon: typeof Users }) {
-  return <div className="prime-metric"><span className="prime-metric-icon"><Icon size={18} /></span><span className="prime-metric-title">{title}</span><strong>{count.toLocaleString()}</strong><small>{description}</small></div>;
-}
-
-export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate: (page: 'search' | 'sources' | 'deadlines') => void }) {
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [semester, setSemester] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(true);
-  const reload = () => {
-    setBusy(true); setError('');
-    liveRequest<Overview>(token, 'overview').then(data => {
-      setOverview(data); setSemester(current => current && data.semesters.some(x => x.semester === current) ? current : data.semesters.at(-1)?.semester || '');
-    }).catch(err => setError(err instanceof Error ? err.message : String(err))).finally(() => setBusy(false));
-  };
-  useEffect(() => { reload(); }, [token]);
-  const current = overview?.semesters.find(row => row.semester === semester);
-  const status = overview?.sourceStatus.find(row => row.semester === semester);
-  const indexedPhases = overview?.sourceStatus.reduce((count, row) => count + row.phases.filter(p => p.indexed).length, 0) || 0;
-  return <div className="prime-stack">
-    <section className="prime-intro">
-      <div><span className="eyebrow">ACADEMIC SNAPSHOT</span><h2>A clearer view of thesis activity.</h2><p>Registered records, recorded marks, panel feedback, and shortcuts in one place.</p></div>
-      <div className="prime-overview-actions"><button className="lightbtn" type="button" onClick={reload} disabled={busy}><Activity size={15} /> Refresh overview</button></div>
-    </section>
-    {error && <div className="live-error" role="alert">{error}</div>}
-    {overview&&busy&&<PortalLoading compact label="Refreshing academic overview" detail="Updating student and group totals…"/>}
-    {!overview && busy ? <LoadingLines label="Preparing your academic overview" /> : overview && <>
-      <div className="prime-metrics">
-        <Metric title="Students in master" count={overview.students} description="All validated student records" icon={Users} />
-        <Metric title="Research groups" count={overview.groups} description="Distinct thesis / project IDs" icon={GraduationCap} />
-        <Metric title="Groups in P1" count={overview.diagnostics?.stageGroups.P1||0} description="All registered groups" icon={GraduationCap} />
-        <Metric title="Groups in P2" count={overview.diagnostics?.stageGroups.P2||0} description="All registered groups" icon={GraduationCap} />
-        <Metric title="Final thesis / defense" count={overview.diagnostics?.stageGroups.Defense||0} description="All registered groups" icon={GraduationCap} />
-        <Metric title="Completed groups" count={overview.diagnostics?.stageGroups.Completed||0} description="All registered groups" icon={CheckCircle2} />
-        <Metric title="Indexed evaluation phases" count={indexedPhases} description="Across registered semesters" icon={Clock3} />
-      </div>
-      <div className="prime-two-column">
-        <section className="card prime-panel">
-          <div className="prime-panel-heading"><div><h3>Evaluation records</h3><p>Synchronized panel feedback and available master marks are shown directly.</p></div><select aria-label="Select reporting semester" value={semester} onChange={event => setSemester(event.target.value)}>{overview.semesters.map(row => <option key={row.semester}>{row.semester}</option>)}</select></div>
-          <div className="prime-phase-list">
-            {(['P1', 'P2', 'Defense'] as Phase[]).map(phase => {
-              const phaseStatus = status?.phases.find(p => p.phase === phase);
-              return <div className="prime-phase" key={phase}>
-                <div><span className="prime-phase-dot" /><div><b>{phaseNames[phase]}</b><small>{current?.[phase].students || 0} students · {current?.[phase].groups || 0} groups with indexed records</small></div></div>
-                <span className={`prime-state ${phaseStatus?.indexed ? 'is-ready' : ''}`}>{phaseStatus?.indexed ? 'Indexed' : 'Not synchronized'}</span>
-              </div>;
-            })}
-          </div>
-          <button className="prime-panel-link" onClick={() => onNavigate('sources')}>View semester sources <ArrowRight size={15} /></button>
-        </section>
-        <section className="card prime-panel prime-activity">
-          <div className="prime-panel-heading"><div><h3>Workspace health</h3><p>Clear status, without guessing at missing data.</p></div><Database size={19} /></div>
-          <div className="prime-health-item"><span className="prime-health-icon"><CheckCircle2 size={17} /></span><div><b>Master records available</b><small>{overview.students} students and {overview.groups} groups loaded directly from the master</small></div></div>
-          {overview.diagnostics&&<div className="prime-health-item"><span className="prime-health-icon"><FileSearch size={17}/></span><div><b>Data reconciliation</b><small>{overview.diagnostics.sourceStudents} source student rows · {overview.diagnostics.sourceGroups} source group rows · {overview.diagnostics.unmatchedStudents} students without a matching group · {overview.diagnostics.invalidStudentIds} invalid student IDs · {overview.diagnostics.invalidGroupIds} unusual group IDs</small></div></div>}
-          <div className="prime-health-item"><span className="prime-health-icon"><Clock3 size={17} /></span><div><b>Last evaluation index update</b><small>{friendlyDate(overview.lastSyncedAt)}</small></div></div>
-          <div className="prime-health-item"><span className="prime-health-icon"><CalendarDays size={17} /></span><div><b>Deadlines & resources</b><small>Review current submissions and academic links.</small></div></div>
-          <button className="prime-panel-link" onClick={() => onNavigate('deadlines')}>Open deadlines <ArrowRight size={15} /></button>
-        </section>
-      </div>
-      <section className="card prime-panel">
-        <div className="prime-panel-heading"><div><h3>Semester summary</h3><p>Distinct students and groups with synchronized marks or feedback.</p></div><span className="prime-subtle-tag">Live data</span></div>
-        <div className="tableoverflow"><table className="prime-table"><thead><tr><th>Semester</th><th>Students</th><th>Groups</th><th>Pre-Thesis 1</th><th>Pre-Thesis 2</th><th>Final Defense</th></tr></thead><tbody>{overview.semesters.map(row => <tr key={row.semester}><td><b>{row.semester}</b></td><td>{row.students}</td><td>{row.groups}</td><td>{row.P1.students} / {row.P1.groups}</td><td>{row.P2.students} / {row.P2.groups}</td><td>{row.Defense.students} / {row.Defense.groups}</td></tr>)}{!overview.semesters.length && <tr><td colSpan={6}>No semester managers registered yet.</td></tr>}</tbody></table></div>
-        <p className="prime-footnote">Counts in the top cards refer to the entire permanent master. Semester figures require indexed evaluator records and are not semester enrollment totals.</p>
-      </section>
-      <button className="prime-quick-search" onClick={() => onNavigate('search')}><span><FileSearch size={21} /></span><div><b>Need a particular record?</b><small>Find a student, group, thesis title, or supervisor.</small></div><ChevronRight size={19} /></button>
-    </>}
-  </div>;
-}
 
 function CopyValue({ value, label = 'Copy' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);

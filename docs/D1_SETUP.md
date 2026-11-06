@@ -5,7 +5,7 @@ This is a **deployment guide**, not an already-live migration. The application s
 ## What changes
 
 - **Google Sheets stays authoritative.** Edits to old *or* new rows, student names, group assignments, comments, scores, faculty details, deadlines, and resource links are included in each synchronized snapshot.
-- A 5-minute Apps Script time trigger scans the master and current `Deadlines and Links` workbook. A SHA-256 snapshot checksum avoids rewriting unchanged data; however it still checks the D1 active checksum, so restoring or replacing a database is detected.
+- A 5-minute Apps Script time trigger scans the Thesis Master (including its `Resources` tab) and the `Deadlines and Links` workbook (deadlines only). A SHA-256 snapshot checksum avoids rewriting unchanged data; however it still checks the D1 active checksum, so restoring or replacing a database is detected.
 - Cloudflare Pages Functions read student dashboards, supervisor dashboards, account roles, deadlines and resources **directly from D1**. This removes their per-request dependency on the Apps Script execution limit.
 - The master-sheet search, administrator overview, faculty edits, role grants, announcements, and historical index sync remain on the authenticated Apps Script backend. They are low-volume operations, but do not have D1-level scale yet.
 - Snapshot activation happens only after all batches have been stored; readers see the last complete generation during a partial/failing update. The previous three successful generations are retained for cleanup safety.

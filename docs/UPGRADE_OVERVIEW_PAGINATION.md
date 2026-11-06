@@ -16,15 +16,11 @@
 3. Refresh the portal. Confirm the four Overview counters appear quickly, Faculty List opens, and Administrators lists existing accounts and allows granting another faculty administrator. Verify a second administrator sees the same menu after D1 synchronization.
 4. No D1 schema migration or manual delete is needed. The five-minute `syncD1Now` trigger continues to publish updated roles and group data; if its last run failed, fix the sync error before relying on new roles.
 
-## Three missing resource URLs
+**How to tell the new frontend is actually deployed:** The Overview heading must read **"Thesis groups at a glance"** with exactly four counters. If you still see **"A clearer view of thesis activity"**, the browser is displaying the *old frontend bundle*. Confirm that GitHub `src/LivePortal.tsx` imports `SimpleOverview`, that Cloudflare Pages built the correct branch and commit, and then hard-refresh the page. The old `PrimeOverview` component has been removed from this package to avoid confusion when merging files.
 
-The authoritative `Deadlines and Links` sheet at `1SkyO77YFde-N4bpxQ5lb07FH24hFINyR4JBgD47Xamk` contains filenames, but **no hyperlinks**, in cells `C5`, `C6`, and `C7`:
+## Resource source update
 
-- Final Year Thesis Template ZIP
-- Thesis Marking Rubrics XLSX
-- BRACU Final Thesis Template ZIP
-
-The portal labels these as **Link unavailable** until their *actual* source links are provided. Add the correct URL/hyperlink to these source cells and allow the normal five-minute D1 refresh; never link to an unrelated file with a similar name.
+The earlier resource-link troubleshooting for `Deadlines and Links` was superseded. The portal now reads only **Thesis Master → Resources**, columns `A: Title` and `B: Data`. See [`UPGRADE_RESOURCE_GROUPING.md`](UPGRADE_RESOURCE_GROUPING.md).
 
 ## Verification
 

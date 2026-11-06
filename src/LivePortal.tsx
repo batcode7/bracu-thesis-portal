@@ -149,19 +149,33 @@ function LiveDeadlines({token,studentStage}:{token:string;studentStage?:string})
 function LiveResources({token}:{token:string}) {
   const [items,setItems]=useState<Resource[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);
   const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
+  const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
   useEffect(()=>{let active=true;setLoading(true);cachedLiveRequest<{items:Resource[]}>(token,'resources',{},60000).then(result=>{if(active){setItems(result.items);setError('');}}).catch(e=>{if(active)setError(e.message||String(e));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token,revision]);
   const safe=(raw:string)=>{try{const url=new URL(raw);return url.protocol==='https:'?url.href:'';}catch{return '';}};
   const links=items.filter(item=>safe(item.url)).length;
   const pageItems=items.slice(page*pageSize,(page+1)*pageSize);
-  const phaseName=(phase:string)=>phase==='P1'?'Pre-Thesis 1':phase==='P2'?'Pre-Thesis 2':phase==='Defense'?'Final Thesis':'General';
-  return <div className="resources-library"><div className="resources-library-heading"><div><span className="eyebrow">RESOURCE LIBRARY</span><h2>Departmental resources</h2><p>Official templates, guidelines and reference materials.</p></div><button className="lightbtn" onClick={()=>{invalidateLiveCache('resources');setRevision(x=>x+1);}} disabled={loading}>Refresh</button></div>
+  const categories=[
+    {id:'forms',title:'Forms & Requests'},
+    {id:'templates',title:'Thesis Templates'},
+    {id:'guidelines',title:'Policies & Guidelines'},
+    {id:'tutorials',title:'Tutorials & Media'},
+    {id:'other',title:'Other Resources'},
+  ];
+  const categoryOf=(title:string)=>/tutorial|video|recording|youtube/i.test(title)?'tutorials':/template/i.test(title)?'templates':/rubric|policy|guideline/i.test(title)?'guidelines':/form|application|defer/i.test(title)?'forms':'other';
+  const grouped=categories.map(category=>({...category,items:pageItems.filter(item=>categoryOf(item.title)===category.id)})).filter(group=>group.items.length);
+  return <div className="resources-library"><div className="resources-library-heading"><div><span className="eyebrow">RESOURCE LIBRARY</span><h2>Departmental resources</h2><p>Official templates, guidelines and reference materials.</p></div><button className="lightbtn" onClick={()=>{invalidateLiveCache('resources');setPage(0);setRevision(x=>x+1);}} disabled={loading}>Refresh</button></div>
     {error&&<div className="live-error" role="alert">Unable to read live resources: {error}</div>}
     {loading?<PortalLoading label="Loading departmental resources" detail="Retrieving updated documents and links…"/>:<section className="card resources-library-panel">
       <div className="resources-library-meta"><strong>{items.length} resources</strong><span>{links} links available{links<items.length?` · ${items.length-links} without a source link`:''}</span></div>
-      <div className="resources-library-list">{pageItems.map(item=>{
-        const url=safe(item.url);
-        return <div className="resources-library-row" key={item.id}><span className="resources-library-category">{phaseName(item.phase)}</span><div className="resources-library-name"><strong>{item.title}</strong>{item.detail&&item.detail!==item.title&&<small>{item.detail}</small>}</div>{url?<a href={url} target="_blank" rel="noopener noreferrer" className="resources-library-link">Open <ArrowUpRight size={15}/></a>:<span className="resources-library-missing">Link unavailable</span>}</div>;
-      })}{!items.length&&!error&&<p className="resources-library-empty">No resources are listed in the current source.</p>}</div>
+      <div className="resources-accordion">{grouped.map(group=><section className="resources-accordion-group" key={group.id}>
+        <button type="button" className="resources-accordion-trigger" aria-expanded={!collapsed[group.id]} onClick={()=>setCollapsed(current=>({...current,[group.id]:!current[group.id]}))}>
+          <span>{group.title} <small>({group.items.length})</small></span><ChevronDown size={17}/>
+        </button>
+        {!collapsed[group.id]&&<div className="resources-accordion-items">{group.items.map(item=>{
+          const url=safe(item.url);
+          return <div className="resources-accordion-row" key={item.id}><div className="resources-library-name"><strong>{item.title}</strong>{item.detail&&item.detail!==item.title&&<small>{item.detail}</small>}</div>{url?<a href={url} target="_blank" rel="noopener noreferrer" className="resources-library-link">Open <ArrowUpRight size={15}/></a>:<span className="resources-library-missing">Link unavailable</span>}</div>;
+        })}</div>}
+      </section>)}{!items.length&&!error&&<p className="resources-library-empty">No resources are listed in Thesis Master → Resources.</p>}</div>
       <Pagination label="Resources" total={items.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size=>{setPageSize(size);setPage(0);}}/>
     </section>}
   </div>;

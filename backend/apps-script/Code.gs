@@ -382,10 +382,30 @@ function adminDetail_(studentId, studentRows, groupRows) {
   var group=groupRows.filter(function(g){return g.id===s.thesisId;})[0];assert_(group,'Group not found');
   return {student:{id:s.id,name:s.name,email:s.email,thesisId:s.thesisId},group:group,members:studentRows.filter(function(x){return x.thesisId===group.id;}).map(function(x){return {id:x.id,name:x.name,email:x.email};}),marks:marks_()[s.id]||{},evaluations:phaseEvaluations_(s,group,marks_()[s.id]||{p1:null,p2:null,defense:null})};
 }
+// The permanent Thesis Master → Resources tab is the single authoritative
+// resource source. Only nonempty Title rows from columns A:B are published.
+function masterResources_() {
+  var sheet=SpreadsheetApp.openById(masterId_()).getSheetByName('Resources');
+  assert_(sheet,'Thesis Master → Resources tab is missing');
+  var last=sheet.getLastRow();if(last<1)return [];
+  var range=sheet.getRange(1,1,last,2),rows=range.getDisplayValues();
+  assert_(norm_(rows[0][0])==='title'&&norm_(rows[0][1])==='data','Thesis Master → Resources headers must be Title and Data');
+  var rich=typeof range.getRichTextValues==='function'?range.getRichTextValues():[];
+  return rows.slice(1).map(function(row,index){
+    var title=String(row[0]||'').trim(),cell=rich[index+1]&&rich[index+1][1];
+    var link=cell&&typeof cell.getLinkUrl==='function'?(cell.getLinkUrl()||''):'';
+    if(!link&&cell&&typeof cell.getRuns==='function'){
+      link=(cell.getRuns()||[]).map(function(run){return run.getLinkUrl();}).filter(Boolean)[0]||'';
+    }
+    var url=String(link||row[1]||'').trim();
+    if(!/^https:\/\/[^\s]+$/i.test(url))url='';
+    return {id:String(index+2),phase:'General',audience:'ALL',title:title,detail:'',url:url};
+  }).filter(function(item){return !!item.title;});
+}
 function academicInformation_() {
   var sheet = SpreadsheetApp.openById(prop_('DEADLINE_SHEET_ID',DEFAULT_DEADLINES_ID)).getSheetByName('Deadlines and Links');
-  assert_(sheet,'Deadline tab missing');var last=sheet.getLastRow();if(last<2)return {deadlines:[],resources:[]};
-  var range=sheet.getRange(2,1,last-1,6),rows=range.getDisplayValues(),rich=range.getRichTextValues(),lastStage='',deadlines=[],resources=[],lastDeadline=null;
+  assert_(sheet,'Deadline tab missing');var last=sheet.getLastRow();if(last<2)return {deadlines:[],resources:masterResources_()};
+  var range=sheet.getRange(2,1,last-1,6),rows=range.getDisplayValues(),rich=range.getRichTextValues(),lastStage='',deadlines=[],lastDeadline=null;
   function stage_(label) {
     var name=norm_(label);
     if(/early/.test(name)&&/(defen|final)/.test(name))return 'Early Defense';
@@ -423,10 +443,8 @@ function academicInformation_() {
       deadlines.push(entry);lastDeadline=entry;return;
     }
     lastDeadline=null;
-    resources.push({id:String(i+2),phase:phase==='Early Defense'?'Defense':phase,
-      audience:String(r[0]||lastStage||'ALL').trim(),title:title,detail:String(r[2]||'').trim(),url:resourceUrl||submissionUrl});
   });
-  return {deadlines:deadlines,resources:resources};
+  return {deadlines:deadlines,resources:masterResources_()};
 }
 function deadlineLinks_(){return academicInformation_().deadlines;}
 function summary_(studentRows,providedMarks,providedComments) {
