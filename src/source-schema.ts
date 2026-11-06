@@ -8,8 +8,9 @@
  */
 export const VERIFIED_MASTER_COLUMNS = [
   { tab: 'All student info', lookup: 'Email (E)', fields: 'Student ID (B), name (C), thesis ID (D)' },
-  { tab: 'Group info', lookup: 'Thesis ID (B)', fields: 'Type (C), current level (D), supervisors (E–H), title (I), abstract (J)' },
+  { tab: 'Group info', lookup: 'Thesis ID (B)', fields: 'Type (C), current level (D), supervisors (E–H), title (I), abstract (J), P1 semester/comments (K/L), P2 (M/N), Defense (O/P)' },
   { tab: 'Marks', lookup: 'Student ID (B)', fields: 'P1 (H), P2 (I), defense parts (J–L), supervisor (M)' },
+  { tab: 'Panel Manager Links', lookup: 'Semester (A)', fields: 'Panel manager spreadsheet URL (B), maintained in Thesis Master' },
 ] as const;
 
 export const VERIFIED_COMMENT_COLUMNS = [
@@ -21,8 +22,8 @@ export const VERIFIED_COMMENT_COLUMNS = [
 export const SOURCE_LOOKUP_RULES = [
   'Find a signed-in student by their verified BRAC Google email, never a user-entered student ID.',
   'Use their thesis ID to read Group info → Level for current status.',
-  'Resolve the relevant phase and semester independently; retain links to every previous semester.',
-  'Find the evaluator workbook link in that semester’s panel tab (column I), then read its marks and remarks.',
-  'A blank group ID on a member row inherits the last nonblank group ID above it.',
-  'Show verified students their own existing master marks and matching indexed comments independently; zero is a valid mark, not missing data.',
+  'Read P1, P2, and Defense semesters and group-wide comments directly from Group info K:P by exact thesis ID.',
+  'Read panel manager links from Thesis Master → Panel Manager Links; leave the portal registry read-only.',
+  'Older evaluator workbooks may still be synchronized to a separate index for historical statistics only.',
+  'Show verified students their own master marks and their group’s master comments independently; zero is a valid mark.',
 ] as const;

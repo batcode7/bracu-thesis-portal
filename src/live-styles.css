@@ -24,6 +24,10 @@
 .admin-detail{max-width:720px}
 .detail-section{margin-top:25px;border-top:1px solid #edf1f5;padding-top:14px}
 .detail-section h3{font-size:14px;color:#234563;margin:6px 0 17px}
+.admin-phase-comment{border:1px solid #e1edf5;border-radius:10px;padding:13px 16px;margin:10px 0;background:#f8fbfe}
+.admin-phase-comment strong{font-size:12px;color:#285a7c}
+.admin-phase-comment small{font-size:11px;color:#7893a8;margin-left:10px}
+.admin-phase-comment p{font-size:12px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0 0;color:#45677e}
 .memberlist{display:grid;gap:8px}
 .memberlist>div{display:flex;gap:11px;align-items:center;background:#f7fafc;border:1px solid #eff3f7;border-radius:8px;padding:11px 13px;color:#496782;font-size:12px}
 .memberlist small{margin-left:auto;color:#94a6b5}

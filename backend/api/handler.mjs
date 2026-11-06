@@ -9,7 +9,7 @@ const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
   'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','preview','previewCandidates',
   'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty',
-  'registerSemester','sync','restartSync','aliases','setAlias','removeAlias',
+  'sync','restartSync','aliases','setAlias','removeAlias',
   'announcements','saveAnnouncement','statusAnnouncement','updateFaculty'
 ]);
 const SESSION_COOKIE='bracu_portal_session';

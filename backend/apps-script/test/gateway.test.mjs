@@ -16,13 +16,17 @@ const context=vm.createContext({
 });
 vm.runInContext(source,context);
 const originalGroupReader=context.groups_;
+const originalRowsReader=context.rows_;
+context.rows_=(id,tab,width)=>tab==='Panel Manager Links'?
+  [['Semester','Panel Manager'],['Spring25','https://docs.google.com/spreadsheets/d/1G9JH7bqQfhg8Ei6yWgg1Y-pJzf9Jo-xpJdllcWJnUNY/edit'],['Summer26','https://docs.google.com/spreadsheets/d/1Z882cDXwrQwuMgbSFF3CQmqyWXuAXq8U3Thn7569QTU/edit?usp=sharing'],['Fall26','']]:
+  originalRowsReader(id,tab,width);
 const students=[
   {id:'22101234',name:'First',thesisId:'T2530123',email:'first@gmail.com',aliases:['first@g.bracu.ac.bd']},
   {id:'22104567',name:'Second',thesisId:'T2530124',email:'second@gmail.com',aliases:['second@g.bracu.ac.bd']},
 ];
 const groups=[
-  {id:'T2530123',title:'Research A',type:'Thesis',stage:'Pre-Thesis 2',primarySupervisor:'Faculty A',secondarySupervisor:'Faculty C',coSupervisor1:'Faculty B',coSupervisor2:''},
-  {id:'T2530124',title:'Research B',type:'Thesis',stage:'Final Thesis',primarySupervisor:'Faculty B'},
+  {id:'T2530123',title:'Research A',type:'Thesis',stage:'Pre-Thesis 2',primarySupervisor:'Faculty A',secondarySupervisor:'Faculty C',coSupervisor1:'Faculty B',coSupervisor2:'',phaseSemesters:{P1:'Spring25',P2:'Summer26',Defense:''},phaseComments:{P1:'Revise methodology',P2:'Add experiments',Defense:''}},
+  {id:'T2530124',title:'Research B',type:'Thesis',stage:'Final Thesis',primarySupervisor:'Faculty B',phaseSemesters:{P1:'',P2:'',Defense:'Summer26'},phaseComments:{P1:'',P2:'',Defense:'Private group B defense feedback'}},
 ];
 const marks={
   '22101234':{p1:4,p2:8,defense:null},
@@ -70,22 +74,26 @@ test('supervisor receives only the group matched by trusted email/name mapping',
   assert.equal(result.students[0].marks.p2,8);
   assert.equal(result.groups[0].feedback.length,2);
   assert.equal(result.groups[0].feedback.find(e=>e.phase==='P2').comment,'Add experiments');
-  assert.deepEqual(Array.from(result.groups[0].feedback.find(e=>e.phase==='P2').students),['First (22101234)']);
+  assert.deepEqual(Array.from(result.groups[0].feedback.find(e=>e.phase==='P2').students),[]);
   assert.throws(()=>run('faculty@bracu.ac.bd','detail',{studentId:'22104567'}),/Not authorized/);
 });
-test('Group info reads the new abstract beside the thesis title',()=>{
+test('Group info maps title, abstract, each phase semester and group comments',()=>{
   const previous=context.rows_;
-  const row=['','P2510530','Project','Completed','Mr. Partha Bhoumik','','Ms. Sukarna Sarker','','Vector Population Modeling','Study of environmental and geospatial factors.'];
-  context.rows_=(id,tab,width)=>{assert.equal(tab,'Group info');assert.equal(width,10);return [['','Thesis ID','Type','Stage','','','','','Title','Abstract'],row];};
+  const row=['','P2510530','Project','Completed','Mr. Partha Bhoumik','','Ms. Sukarna Sarker','','Vector Population Modeling','Study of environmental and geospatial factors.','Spring26','Good baseline','Summer26','Improve novelty','','No Comments. Please reach out to your respective panel members for feedback.'];
+  context.rows_=(id,tab,width)=>{assert.equal(tab,'Group info');assert.equal(width,16);return [['','Thesis ID','Type','Stage','','','','','Title','Abstract','P1 Semester','P1 Comments','P2 Semester','P2 Comments','Def Semester','Def Comments'],row];};
   try{
     const loaded=originalGroupReader();
     assert.equal(loaded[0].id,'P2510530');
     assert.equal(loaded[0].type,'Project');
     assert.equal(loaded[0].title,'Vector Population Modeling');
     assert.equal(loaded[0].abstract,'Study of environmental and geospatial factors.');
+    assert.equal(loaded[0].phaseSemesters.P2,'Summer26');
+    assert.equal(loaded[0].phaseComments.P1,'Good baseline');
+    assert.equal(loaded[0].phaseComments.P2,'Improve novelty');
+    assert.equal(loaded[0].phaseComments.Defense,'');
   }finally{context.rows_=previous;}
 });
-test('supervisors see only their own group comments, deduplicated across evaluator rows',()=>{
+test('supervisors receive only their own group-wide master comments; indexed evaluator rows are ignored',()=>{
   const old=context.comments_;
   context.comments_=()=>[
     ...evaluations,
@@ -98,7 +106,7 @@ test('supervisors see only their own group comments, deduplicated across evaluat
     assert.equal(result.groups.length,1);
     assert.equal(result.groups[0].feedback.length,2);
     assert.ok(result.groups[0].feedback.every(f=>!f.comment.includes('Private group B')&&!f.comment.includes('Mismatched member')));
-    assert.equal(result.groups[0].feedback.find(f=>f.phase==='P1').students.length,1);
+    assert.equal(result.groups[0].feedback.find(f=>f.phase==='P1').students.length,0);
     assert.equal(result.groups[0].feedback[0].sourceId,undefined);
   }finally{context.comments_=old;}
 });
@@ -121,7 +129,7 @@ test('only the protected prime administrator can grant ordinary admin rights',()
   assert.throws(()=>run('admin@bracu.ac.bd','addAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'partha.bhoumik@bracu.ac.bd'}),/Invalid administrator/);
 });
-test('blank evaluator comments do not conceal an official master mark or valid feedback',()=>{
+test('blank indexed evaluator comments cannot override a master comment or conceal official marks',()=>{
   const blank=[...evaluations,{...evaluations[0],evaluator:'Judge C',comment:''}];
   context.comments_=()=>blank;
   const record=run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P1');
@@ -140,8 +148,33 @@ test('obsolete academic publishing action cannot be called',()=>{
   assert.equal(run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P2').score,8);
   context.comments_=()=>evaluations;
 });
+test('Prime Admin cannot register panel links; registry is read only from Thesis Master',()=>{
+  const sources=run('partha.bhoumik@bracu.ac.bd','registry').sources;
+  assert.deepEqual(Array.from(sources,s=>s.semester),['Spring 2025','Summer 2026']);
+  assert.equal(sources[1].spreadsheetId,'1Z882cDXwrQwuMgbSFF3CQmqyWXuAXq8U3Thn7569QTU');
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','registerSemester',{semester:'Fall 2026',spreadsheetId:'1Z882cDXwrQwuMgbSFF3CQmqyWXuAXq8U3Thn7569QTU'}),/Unknown API action/);
+});
+test('role preview type-ahead returns a verified student alias when their master email is not a Workspace address',()=>{
+  const suggestions=run('partha.bhoumik@bracu.ac.bd','suggest',{q:'2210123',kind:'student'}).items;
+  assert.equal(suggestions[0].id,'22101234');
+  assert.equal(suggestions[0].email,'first@g.bracu.ac.bd');
+  assert.throws(()=>run('faculty@bracu.ac.bd','suggest',{q:'2210123',kind:'student'}),/Not authorized/);
+});
+test('faculty preview directory is alphabetical, includes initials and preserves Dr. while omitting Mr. and Ms.',()=>{
+  const previous=props.FACULTY_DIRECTORY_JSON;
+  try{
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([
+      {email:'zara@bracu.ac.bd',names:['Ms. Zara Khan'],initial:'ZK'},
+      {email:'arif@bracu.ac.bd',names:['Dr. Arif Rahman'],initial:'AR'},
+      {email:'bithi@bracu.ac.bd',names:['Mr. Bithi Islam'],initial:'BI'},
+    ]);
+    const candidates=run('partha.bhoumik@bracu.ac.bd','previewCandidates').faculty;
+    assert.deepEqual(Array.from(candidates,c=>c.name),['Dr. Arif Rahman','Bithi Islam','Zara Khan']);
+    assert.deepEqual(Array.from(candidates,c=>c.initial),['AR','BI','ZK']);
+    assert.equal(context.facultyDisplayName_('Mrs. Dr. Samira Rahman'),'Dr. Samira Rahman');
+  }finally{props.FACULTY_DIRECTORY_JSON=previous;}
+});
 test('admin semester stats count synced students once, independent of manual publication',()=>{
-  props.SEMESTER_SOURCES_JSON=JSON.stringify([{semester:'Spring 2025',spreadsheetId:'oldsource'},{semester:'Summer 2026',spreadsheetId:'newsource'}]);
   context.comments_=()=>[evaluations[0],{...evaluations[0],evaluator:'Second judge'}];
   const result=run('partha.bhoumik@bracu.ac.bd','summary').semesters;
   assert.equal(result[0].P1.students,1);
@@ -152,7 +185,6 @@ test('admin semester stats count synced students once, independent of manual pub
   context.comments_=()=>evaluations;
   assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[1].P2.students,1);
   context.comments_=()=>evaluations;
-  delete props.SEMESTER_SOURCES_JSON;
 });
 test('only the Prime Administrator can preview another role, and previews are read only',()=>{
   assert.throws(()=>run('admin@bracu.ac.bd','previewCandidates'),/Not authorized/);
@@ -174,7 +206,7 @@ test('only the Prime Administrator can preview another role, and previews are re
 });
 test('Prime overview distinguishes actual master records from synchronized semester statistics',()=>{
   const previous=context.rows_;
-  context.rows_=(id,tab)=>tab==='All student info'?[['','22101234','First','T2530123',''],['','22104567','Second','T2530124','']]:tab==='Group info'?[['','T2530123','Thesis','Pre-Thesis 2'],['','T2530124','Project','Final Thesis']]:[];
+  context.rows_=(id,tab,width)=>tab==='All student info'?[['','22101234','First','T2530123',''],['','22104567','Second','T2530124','']]:tab==='Group info'?[['','T2530123','Thesis','Pre-Thesis 2'],['','T2530124','Project','Final Thesis']]:previous(id,tab,width);
   try{
     const report=run('partha.bhoumik@bracu.ac.bd','overview');
     assert.equal(report.students,2);assert.equal(report.groups,2);
@@ -182,7 +214,7 @@ test('Prime overview distinguishes actual master records from synchronized semes
     assert.equal(report.diagnostics.stageGroups.P2,1);
     assert.equal(report.diagnostics.stageGroups.Defense,1);
     assert.equal(report.diagnostics.unmatchedStudents,0);
-    assert.equal(report.semesters[0].P1.students,0); // default semester is Summer 2026
+    assert.equal(report.semesters[0].P1.students,1); // Spring 2025 is listed in master registry.
     assert.throws(()=>run('first@g.bracu.ac.bd','overview'),/Not authorized/);
   }finally{context.rows_=previous;}
 });
@@ -225,10 +257,14 @@ test('Prime Admin type-ahead resolves partial student, faculty, and group querie
     assert.equal(byStudent.filter(s=>s.kind==='student').length,2);
     const byName=context.suggestAcademic_('ayesh',roster,assigned).items;
     assert.equal(byName[0].id,'22101234');
+    assert.equal(byName[0].email,'ayesha@g.bracu.ac.bd');
+    assert.deepEqual(Array.from(context.suggestAcademic_('2210',roster,assigned,'faculty').items),[]);
+    assert.deepEqual(Array.from(context.suggestAcademic_('ayesh',roster,assigned,'student').items,i=>i.email),['ayesha@g.bracu.ac.bd']);
     const byGroup=context.suggestAcademic_('T2530',roster,assigned).items;
     assert.ok(byGroup.some(s=>s.kind==='group'&&s.id==='T2530123'));
     const byFaculty=context.suggestAcademic_('par',roster,assigned).items;
     assert.ok(byFaculty.some(s=>s.kind==='faculty'&&s.id==='partha.bhoumik@bracu.ac.bd'));
+    assert.equal(context.suggestAcademic_('par',roster,assigned,'faculty').items[0].email,'partha.bhoumik@bracu.ac.bd');
     const selection=context.adminSearch_('','All stages','All types',roster,assigned,0,'partha.bhoumik@bracu.ac.bd');
     assert.deepEqual(Array.from(selection.rows,r=>r.student.id),['22101234']);
     assert.throws(()=>context.adminSearch_('','All stages','All types',roster,assigned,0,'unverified@bracu.ac.bd'),/not verified/);

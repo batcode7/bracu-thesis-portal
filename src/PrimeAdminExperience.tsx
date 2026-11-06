@@ -12,10 +12,10 @@ type Overview = { students: number; groups: number; recorded: Record<Phase, numb
   diagnostics?:{sourceStudents:number;sourceGroups:number;validStudents:number;validGroups:number;invalidStudentIds:number;invalidGroupIds:number;unmatchedStudents:number;stageGroups:Record<string,number>;stageStudents:Record<string,number>;types:Record<string,number>} };
 type DirectoryRow = { student: { id: string; name: string; email: string; thesisId: string }; group: ThesisGroup };
 type ThesisGroup = { id: string; title: string; type: string; stage: string; primarySupervisor: string; secondarySupervisor?: string; coSupervisor1?: string; coSupervisor2?: string };
-type Detail = DirectoryRow & { members: Array<{ id: string; name: string; email: string }>; marks: Record<string, number | string | null> };
+type Detail = DirectoryRow & { members: Array<{ id: string; name: string; email: string }>; marks: Record<string, number | string | null>; evaluations:Array<{id:string;phase:string;semester:string;comment:string|null}> };
 type FacultyRow = { name: string; email: string; initial: string; designation: string; status: string; room: string; aliases: string[]; groups: number; source: string };
 type FacultyResult = { faculty: FacultyRow[]; matched: number; missing: number; updatedAt: string; warning?: string };
-type AcademicSuggestion = {kind:'student'|'faculty'|'group';id:string;label:string;detail:string};
+type AcademicSuggestion = {kind:'student'|'faculty'|'group';id:string;label:string;detail:string;email?:string};
 export type RolePreview = { role: 'prime_admin' | 'admin' | 'student' | 'supervisor'; email: string; data: StudentDashboard | SupervisorDashboard | null };
 
 const phaseNames: Record<Phase, string> = { P1: 'Pre-Thesis 1', P2: 'Pre-Thesis 2', Defense: 'Final Defense' };
@@ -77,7 +77,7 @@ export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate
               </div>;
             })}
           </div>
-          <button className="prime-panel-link" onClick={() => onNavigate('sources')}>Manage semester sources <ArrowRight size={15} /></button>
+          <button className="prime-panel-link" onClick={() => onNavigate('sources')}>View semester sources <ArrowRight size={15} /></button>
         </section>
         <section className="card prime-panel prime-activity">
           <div className="prime-panel-heading"><div><h3>Workspace health</h3><p>Clear status, without guessing at missing data.</p></div><Database size={19} /></div>
@@ -186,7 +186,8 @@ export function PrimeSearch({ token }: { token: string }) {
         ['Co-supervisor 1', selected.group.coSupervisor1], ['Co-supervisor 2', selected.group.coSupervisor2],
       ].map(([label, name]) => <div key={label}><small>{label}</small><strong className={!name ? 'prime-muted' : ''}>{name || 'Not assigned'}</strong></div>)}</div></div>
       <div className="detail-section"><h3>Group members</h3><div className="memberlist">{selected.members.map(member => <div key={member.id}><Users size={15} /><span>{member.name}</span><small>{member.id}</small></div>)}</div></div>
-      <div className="detail-section"><h3>Recorded marks</h3><p className="prime-footnote">Values come from the permanent master. Available marks and indexed comments also appear in the verified student's workspace.</p><div className="mark-summary">{(['p1', 'p2', 'defense', 'supervisor'] as const).map(field => <div key={field}><span>{field.toUpperCase()}</span><strong>{selected.marks?.[field] ?? 'Pending'}</strong></div>)}</div></div>
+      <div className="detail-section"><h3>Recorded marks</h3><p className="prime-footnote">Marks come from the permanent master. Group-wide comments also appear in the verified student's workspace directly from Group info.</p><div className="mark-summary">{(['p1', 'p2', 'defense', 'supervisor'] as const).map(field => <div key={field}><span>{field.toUpperCase()}</span><strong>{selected.marks?.[field] ?? 'Pending'}</strong></div>)}</div></div>
+      <div className="detail-section"><h3>Group panel comments</h3>{selected.evaluations.filter(item=>['P1','P2','Defense'].includes(item.phase)).map(item=><div className="admin-phase-comment" key={item.id}><strong>{item.phase}</strong>{item.semester!=='Semester not recorded'&&<small>{item.semester}</small>}<p>{item.comment?.trim()||'No Comments. Please reach out to your respective panel members for feedback.'}</p></div>)}</div>
     </section></div>}
   </div>;
 }
@@ -235,35 +236,67 @@ export function PrimeFacultyList({ token }: { token: string }) {
 }
 
 export function PrimePreviewDialog({ token, onClose, onStart }: { token: string; onClose: () => void; onStart: (preview: RolePreview | null) => void }) {
-  const [role, setRole] = useState<RolePreview['role']>('student'), [email, setEmail] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [facultyOptions, setFacultyOptions] = useState<Array<{email:string;name:string;room:string;designation:string}>>([]);
+  const [role, setRole] = useState<RolePreview['role']>('student'), [email, setEmail] = useState(''), [query, setQuery] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [facultyOptions, setFacultyOptions] = useState<Array<{email:string;name:string;initial:string;room:string;designation:string}>>([]);
   const [facultyBusy, setFacultyBusy] = useState(false);
+  const [facultySearch,setFacultySearch]=useState('');
+  const [suggestions,setSuggestions]=useState<AcademicSuggestion[]>([]),[suggestBusy,setSuggestBusy]=useState(false),[suggestOpen,setSuggestOpen]=useState(false),[activeIndex,setActiveIndex]=useState(0);
   useEffect(() => {
     if (role !== 'supervisor') return;
     let active = true;
     setFacultyBusy(true);
-    liveRequest<{faculty:Array<{email:string;name:string;room:string;designation:string}>}>(token,'previewCandidates')
+    liveRequest<{faculty:Array<{email:string;name:string;initial:string;room:string;designation:string}>}>(token,'previewCandidates')
       .then(result => { if(active) setFacultyOptions(result.faculty); })
       .catch(err => { if(active) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if(active) setFacultyBusy(false); });
     return () => { active = false; };
   },[token,role]);
-  const validFaculty = role !== 'supervisor' || facultyOptions.some(item => item.email.toLowerCase() === email.trim().toLowerCase());
+  useEffect(()=>{
+    if(role!=='student'||email||query.trim().length<2){setSuggestions([]);setSuggestBusy(false);return;}
+    let active=true;
+    setSuggestBusy(true);
+    const timer=window.setTimeout(()=>{
+      liveRequest<{items:AcademicSuggestion[]}>(token,'suggest',{q:query.trim(),kind:'student'})
+        .then(result=>{if(active){setSuggestions(result.items.filter(item=>item.kind==='student'));setActiveIndex(0);}})
+        .catch(err=>{if(active){setSuggestions([]);setError(err instanceof Error?err.message:String(err));}})
+        .finally(()=>{if(active)setSuggestBusy(false);});
+    },220);
+    return()=>{active=false;window.clearTimeout(timer);};
+  },[token,role,query,email]);
+  const sortedFaculty=useMemo(()=>[...facultyOptions].sort((a,b)=>a.name.replace(/^(?:(?:dr|prof|professor)\.?\s+)+/i,'').localeCompare(b.name.replace(/^(?:(?:dr|prof|professor)\.?\s+)+/i,''),undefined,{sensitivity:'base'})||a.email.localeCompare(b.email)),[facultyOptions]);
+  const filteredFaculty=useMemo(()=>{
+    const text=facultySearch.toLowerCase().trim();
+    return text?sortedFaculty.filter(item=>[item.initial,item.name,item.email].some(value=>value.toLowerCase().includes(text))):sortedFaculty;
+  },[sortedFaculty,facultySearch]);
+  const targetEmail=email||query.trim();
+  const validFaculty = role !== 'supervisor' || facultyOptions.some(item => item.email.toLowerCase() === targetEmail.toLowerCase());
+  const validTarget=role==='prime_admin'||role==='admin'||(/^[a-z0-9._%+\-]+@(?:g\.)?bracu\.ac\.bd$/i.test(targetEmail)&&validFaculty);
+  const chooseFaculty=(faculty:{email:string;name:string;initial:string})=>{
+    setEmail(faculty.email);setQuery(faculty.email);setFacultySearch(faculty.name);setError('');
+  };
+  const choose=(item:AcademicSuggestion)=>{
+    if(!item.email){setError('No university email is linked to this record.');return;}
+    setEmail(item.email);setQuery(`${item.label} · ${item.email}`);setSuggestions([]);setSuggestOpen(false);setError('');
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!validFaculty) { setError('Choose an email from the verified Faculty Details directory.'); return; }
+    if (!validTarget) { setError('Select a matching account from the search results or enter its full verified Workspace email.'); return; }
     setBusy(true); setError('');
-    try { const result = await liveRequest<RolePreview>(token, 'preview', { role, email: email.trim() }); onStart(role === 'prime_admin' ? null : result); onClose(); }
+    try { const result = await liveRequest<RolePreview>(token, 'preview', { role, email: targetEmail }); onStart(role === 'prime_admin' ? null : result); onClose(); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   };
   return <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modalbox prime-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="prime-preview-title"><div className="modalheader"><div><span className="eyebrow">PRIME ADMIN ONLY</span><h2 id="prime-preview-title">View as another role</h2><p className="detail-subtitle">Inspect the experience without changing your authenticated identity.</p></div><button className="iconbtn" aria-label="Close preview" onClick={onClose}><X size={19} /></button></div>
-    <form className="prime-preview-form" onSubmit={event => void submit(event)}><label>Portal experience</label><select value={role} onChange={event => { setRole(event.target.value as RolePreview['role']); setEmail(''); setError(''); }}><option value="prime_admin">Prime Admin (return to my workspace)</option><option value="admin">Regular Administrator</option><option value="supervisor">Supervisor / Faculty</option><option value="student">Student</option></select>
-      {role === 'supervisor' && <><label htmlFor="prime-preview-faculty">Choose a verified faculty member</label><select id="prime-preview-faculty" value={facultyOptions.some(f => f.email === email) ? email : ''} disabled={facultyBusy || facultyOptions.length === 0} onChange={event => { setEmail(event.target.value); setError(''); }}><option value="">{facultyBusy ? 'Loading verified faculty…' : 'Select faculty from the official directory'}</option>{facultyOptions.map(item => <option value={item.email} key={item.email}>{item.name} · {item.email}</option>)}</select><p className="prime-preview-hint">{facultyOptions.length ? `${facultyOptions.length} verified faculty accounts available. You may also enter one of these emails below.` : facultyBusy ? 'Checking the verified faculty list…' : 'No verified faculty emails are available. Check Faculty List and run the directory sync.'}</p></>}
-      {(role === 'student' || role === 'supervisor') && <><label htmlFor="prime-preview-email">{role === 'student' ? 'Student Google Workspace email' : 'Verified faculty Google Workspace email'}</label><input id="prime-preview-email" name="preview-target-account" autoComplete="off" type="email" placeholder={role === 'student' ? 'student@g.bracu.ac.bd' : 'faculty@bracu.ac.bd'} value={email} onChange={event => { setEmail(event.target.value); setError(''); }} required />{role === 'supervisor' && email && !validFaculty && !facultyBusy && <p className="prime-preview-warning">This email is not in Faculty Details. Choose a verified faculty account before previewing.</p>}</>}
+    <form className="prime-preview-form" onSubmit={event => void submit(event)}><label>Portal experience</label><select value={role} onChange={event => { setRole(event.target.value as RolePreview['role']); setEmail(''); setQuery('');setFacultySearch('');setSuggestions([]);setSuggestOpen(false); setError(''); }}><option value="prime_admin">Prime Admin (return to my workspace)</option><option value="admin">Regular Administrator</option><option value="supervisor">Supervisor / Faculty</option><option value="student">Student</option></select>
+      {role==='supervisor'&&<><label htmlFor="prime-preview-faculty-search">Choose a verified faculty member</label><input id="prime-preview-faculty-search" type="search" placeholder="Type faculty initials (e.g., PB), name or email…" value={facultySearch} disabled={facultyBusy} onChange={event=>{setFacultySearch(event.target.value);setEmail('');setQuery('');setError('');}} onKeyDown={event=>{if(event.key==='Enter'&&filteredFaculty.length===1){event.preventDefault();chooseFaculty(filteredFaculty[0]);}}}/><select aria-label="Select a verified faculty member" value={filteredFaculty.some(item=>item.email===targetEmail)?targetEmail:''} disabled={facultyBusy} onChange={event=>{const found=facultyOptions.find(item=>item.email===event.target.value);if(found)chooseFaculty(found);}}><option value="">{facultyBusy?'Loading verified faculty…':`Select faculty from the directory (${filteredFaculty.length})`}</option>{filteredFaculty.map(item=><option value={item.email} key={item.email}>{item.initial?item.initial+' · ':''}{item.name}</option>)}</select><p className="prime-preview-hint">{facultyOptions.length?`${facultyOptions.length} verified faculty accounts, sorted alphabetically. Type initials or a name to narrow the list, then choose a result.`:facultyBusy?'Loading the official faculty directory…':'No verified faculty records found. Check Faculty List.'}</p><label htmlFor="prime-preview-faculty-email">Verified faculty Google Workspace email</label><input id="prime-preview-faculty-email" name="preview-faculty-email" type="email" autoComplete="off" placeholder="faculty@bracu.ac.bd" value={query} onChange={event=>{setQuery(event.target.value);setEmail('');setError('');}}/>{targetEmail.includes('@')&&!validFaculty&&!facultyBusy&&<p className="prime-preview-warning">This email is not in the verified Faculty Details directory.</p>}</>}
+      {role==='student'&&<><label htmlFor="prime-preview-email">Find student by name, ID or Workspace email</label><div className="prime-search-autocomplete prime-preview-autocomplete"><input id="prime-preview-email" name="preview-target-account" autoComplete="off" role="combobox" aria-autocomplete="list" aria-expanded={suggestOpen&&suggestions.length>0} aria-controls="prime-preview-suggestions" aria-activedescendant={suggestOpen&&suggestions[activeIndex]?'prime-preview-suggestion-'+activeIndex:undefined} placeholder="Start typing a student name, ID or email…" value={query} onChange={event => {setQuery(event.target.value);setEmail('');setError('');setSuggestOpen(true);setActiveIndex(0);}} onFocus={()=>{if(query.trim().length>=2)setSuggestOpen(true);}} onBlur={()=>window.setTimeout(()=>setSuggestOpen(false),140)} onKeyDown={event=>{
+        if(event.key==='Escape'){setSuggestOpen(false);return;}
+        if((event.key==='ArrowDown'||event.key==='ArrowUp')&&suggestions.length){event.preventDefault();setSuggestOpen(true);setActiveIndex(index=>(index+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length);}
+        if(event.key==='Enter'&&suggestOpen&&suggestions[activeIndex]){event.preventDefault();choose(suggestions[activeIndex]);}
+      }}/>{suggestOpen&&!email&&query.trim().length>=2&&<div id="prime-preview-suggestions" className="prime-suggest-menu" role="listbox" aria-label="Matching student accounts">{suggestBusy?<div className="prime-suggest-status"><LoaderCircle size={14} className="prime-spin"/> Searching university records…</div>:suggestions.length===0?<div className="prime-suggest-status">No matching students found.</div>:suggestions.map((item,index)=><button key={item.kind+item.id} type="button" id={'prime-preview-suggestion-'+index} className={'prime-suggest-item'+(index===activeIndex?' selected':'')} role="option" aria-selected={index===activeIndex} disabled={!item.email} onMouseDown={event=>event.preventDefault()} onMouseEnter={()=>setActiveIndex(index)} onClick={()=>choose(item)}><span className="prime-suggest-kind student">Student</span><span className="prime-suggest-text"><strong>{item.label}</strong><small>{item.email||'Workspace email unavailable'} · {item.detail}</small></span><ChevronRight size={15}/></button>)}</div>}</div><p className="prime-preview-hint">Select a matching student or enter their complete Workspace email.</p></>}
       <div className="prime-preview-safety"><Eye size={17} /><span>Read-only support preview. Every request uses your verified Prime Admin account; the selected email is never accepted as a new login.</span></div>
       {error && <div className="live-error" role="alert">{error}</div>}
-      <button className="primarybtn" type="submit" disabled={busy || facultyBusy || !validFaculty}>{busy ? <><LoaderCircle size={16} className="prime-spin" /> Preparing view…</> : <>Open preview <ArrowRight size={16} /></>}</button>
+      <button className="primarybtn" type="submit" disabled={busy || (role==='supervisor'&&facultyBusy) || !validTarget}>{busy ? <><LoaderCircle size={16} className="prime-spin" /> Preparing view…</> : <>Open preview <ArrowRight size={16} /></>}</button>
     </form>
   </section></div>;
 }
