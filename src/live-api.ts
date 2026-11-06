@@ -4,7 +4,7 @@ export const PORTAL_LIVE = import.meta.env.VITE_PORTAL_MODE === 'live';
 export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-export interface Session { email: string; name: string; role: Role }
+export interface Session { email: string; name: string; role: Role; roles?:Role[]; designation?:string; room?:string }
 
 type CacheRecord = {expires:number;data:unknown};
 const responseCache=new Map<string,CacheRecord>();

@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test:backend": "node --test backend/apps-script/test/gateway.test.mjs backend/api/test/*.test.mjs",
+    "test:backend": "node --test backend/apps-script/test/*.test.mjs backend/api/test/*.test.mjs backend/d1/test/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

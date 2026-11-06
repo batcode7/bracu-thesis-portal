@@ -21,11 +21,13 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 
 **Latest upgrade:** See [`docs/UPGRADE_V7.md`](docs/UPGRADE_V7.md) for verified code changes, source-sheet editing safeguards, the secure session-cookie migration, faculty name normalization, synchronization behavior, and exact deployment checks. This release requires deploying a new version of the existing Apps Script Web app before updating the live frontend.
 
+**D1 + role/deadline upgrade:** See **[`docs/D1_SETUP.md`](docs/D1_SETUP.md)** for the latest roll-out checklist. The live portal now has **Prime Admin only** (no regular Admin role), multi-role account switching, searchable role preview from the overview, live academic deadlines/resources, and an optional Cloudflare D1 read replica. An Apps Script scheduled sync captures changes to old rows too. The D1 fast path is off until explicitly enabled; it requires a one-time database/binding/secret setup. The original Pages + Apps Script setup still works without D1.
+
 ## Current state
 
 - Google Workspace-first landing design; demo previews cannot impersonate a university login. Responsive student dashboard, evaluation cards, semester labels and faculty-comment dialogs.
 - Read-only supervisor student listing, search and stage filters.
-- Read-only administrator and Prime Administrator student search by student ID, thesis/project/internship ID, supervisor initial, name, or title, with detailed group and sample mark views.
+- Prime Administrator-only student search by student ID, thesis/project/internship ID, supervisor initial, name, or title, with detailed group and mark views.
 - Semester-by-semester completion summary including distinct student/group counts and separate P1, P2, and final-defense student/group counts. **All preview counts are fictional** until phase-completion synchronization exists.
 - Searchable, phase-grouped Deadlines & Links view containing verified hyperlink destinations extracted from the `Deadlines and Links` tab of `Thesis Registration [Student View]` on 5 November 2026. Its demo labels are a static snapshot, not a live feed; the live view uses the authenticated API.
 - Semester registry display and Prime Administrator-only access-management preview.
@@ -35,7 +37,7 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 - Implemented a separate **live-mode** Google Identity Services sign-in, authenticated student and supervisor pages, administrator search/statistics, phase-comment synchronization controls, and a private Apps Script gateway.
 - The updated live Prime Admin area has actual master-level overview metrics, a complete four-person supervision display, faculty directory, useful deadline fallback, animated lookups, and a role-restricted read-only View As feature. See [`docs/PRIME_ADMIN_UPGRADE.md`](docs/PRIME_ADMIN_UPGRADE.md) for the rollout sequence.
 - The official `Faculty Details` directory in the permanent master provides initials, names, designations, status, rooms and university email addresses. No faculty email needs to be guessed from a name.
-- The live landing page includes a public **News & events** section. Regular and Prime Administrators can create and publish announcements in the **News & Events** editor, with drafts, featured notices, archives and links. It uses a separate private Google spreadsheet, not the student master. See [`docs/NEWS_AND_EVENTS.md`](docs/NEWS_AND_EVENTS.md) for setup and publishing.
+- The live landing page includes a public **News & events** section. Prime Administrators can create and publish announcements in the **News & Events** editor, with drafts, featured notices, archives and links. It uses a separate private Google spreadsheet, not the student master. See [`docs/NEWS_AND_EVENTS.md`](docs/NEWS_AND_EVENTS.md) for setup and publishing.
 - The **live student workspace** displays available official marks and group-wide panel comments from Thesis Master → `Group info`, without an academic publication toggle. It retains verified faculty contact details, group membership, P1/P2/Defense deadlines, Resources, and mobile navigation.
 - The **live supervisor workspace** shows unique assigned groups with stage/type/role/search filters. Group details show the title, new abstract, type-specific ID, assigned faculty only, student email-copy action, individual recorded marks, and phase-specific panel feedback for that verified faculty member's groups. Refresh preserves the active portal page. See [`docs/UPGRADE_V8.md`](docs/UPGRADE_V8.md).
 
@@ -57,8 +59,8 @@ Semester-wise panel managers link to **individual judge spreadsheets** where com
 
 1. Create a Google Cloud OAuth web client authorized for the production origin.
 2. Verify Google ID tokens **server-side** (issuer, audience, signature, expiration, email verification, Workspace hosted domain). Never trust client-selected roles or requested student IDs.
-3. Enforce row-level authorization for every request: students access only their own records; supervisors access only groups assigned to their verified faculty email; administrators see permitted wider records.
-4. Pin `partha.bhoumik@bracu.ac.bd` as `prime_admin` in trusted server configuration. Only this principal can create/revoke normal administrators; a Sheets edit must not grant root privileges.
+3. Enforce row-level authorization for every request: students access only their own records; supervisors access only groups assigned to their verified faculty email; Prime Administrators see permitted wider records.
+4. Pin `partha.bhoumik@bracu.ac.bd` as a non-removable founding `prime_admin` in trusted server configuration. Prime Administrators can grant/revoke other verified faculty members' Prime Admin roles through the backend; a student or faculty-sheet cell edit must not grant administrator privileges by itself.
 5. Verify that students see **only their own** official marks and their group's consolidated comments; supervisors see only records for groups independently matched to their verified faculty identity. Academic publication gating has been removed by the portal owner's request; even partially recorded results are visible immediately. The university must approve that visibility policy before broad deployment.
 6. Keep Google Sheets credentials and administrative keys only on the backend, never in `VITE_` frontend variables or downloadable bundles.
 7. Connect Google Apps Script through a trusted backend with authenticated requests and proper CORS. Avoid a publicly readable owner-executed Apps Script endpoint that trusts an email string from the client.
@@ -66,4 +68,4 @@ Semester-wise panel managers link to **individual judge spreadsheets** where com
 9. Link the source sheet's `Deadlines and Links` tab to an authenticated, read-only server API and preserve hyperlink metadata. Its current date labels omit the year and its deadlines are marked expired. Do not claim a new active deadline from these values.
 10. Semester completion statistics must be calculated from verified outcome records, not inferred from current `Group info!D` stage, which has no event timestamps. Count unique students/groups per semester and phase; do not sum phase counts to obtain unique totals.
 
-The demo role switcher remains a fictional walkthrough. The live Prime Admin **View As** feature is different: it requires an authenticated Prime Administrator at the backend, retrieves role-scoped data in read-only mode, and is unavailable to regular administrators. It should still undergo university privacy/security review before broad deployment.
+The demo role switcher remains a fictional walkthrough. The live Prime Admin **View As** feature is different: it requires an authenticated Prime Administrator at the backend and retrieves role-scoped data in read-only mode. It should still undergo university privacy/security review before broad deployment.

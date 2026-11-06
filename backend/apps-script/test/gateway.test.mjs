@@ -121,13 +121,28 @@ test('zero is a recorded mark and a missing comment does not conceal it',()=>{
     assert.equal(result.evaluations.find(e=>e.phase==='Supervisor').score,0);
   }finally{context.marks_=old;}
 });
-test('only the protected prime administrator can grant ordinary admin rights',()=>{
-  assert.throws(()=>run('faculty@bracu.ac.bd','addAdmin',{email:'admin@bracu.ac.bd'}),/Not authorized/);
-  const result=run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'admin@bracu.ac.bd'});
-  assert.deepEqual(Array.from(result.admins),['admin@bracu.ac.bd']);
-  assert.equal(run('admin@bracu.ac.bd','session').role,'admin');
-  assert.throws(()=>run('admin@bracu.ac.bd','addAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
-  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'partha.bhoumik@bracu.ac.bd'}),/Invalid administrator/);
+test('Prime Admins appoint other Prime Admins; the founder is protected and the ordinary admin role is gone',()=>{
+  const oldLock=context.LockService;
+  const oldDirectory=props.FACULTY_DIRECTORY_JSON;
+  context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
+  try{
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([
+      {email:'faculty@bracu.ac.bd',names:['Faculty A'],initial:'FA'},
+      {email:'other@bracu.ac.bd',names:['Faculty B'],initial:'FB'},
+    ]);
+    assert.throws(()=>run('faculty@bracu.ac.bd','addPrimeAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addPrimeAdmin',{email:'unknown@bracu.ac.bd'}),/official Faculty Details/);
+    const result=run('partha.bhoumik@bracu.ac.bd','addPrimeAdmin',{email:'faculty@bracu.ac.bd'});
+    assert.deepEqual(Array.from(result.admins),['partha.bhoumik@bracu.ac.bd','faculty@bracu.ac.bd']);
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','session').roles),['prime_admin','supervisor']);
+    assert.equal(run('faculty@bracu.ac.bd','addPrimeAdmin',{email:'other@bracu.ac.bd'}).admins.length,3);
+    assert.throws(()=>run('faculty@bracu.ac.bd','removePrimeAdmin',{email:'faculty@bracu.ac.bd'}),/cannot revoke your own/);
+    assert.throws(()=>run('faculty@bracu.ac.bd','removePrimeAdmin',{email:'partha.bhoumik@bracu.ac.bd'}),/protected founding/);
+    const removed=run('partha.bhoumik@bracu.ac.bd','removePrimeAdmin',{email:'faculty@bracu.ac.bd'});
+    assert.equal(removed.admins.includes('faculty@bracu.ac.bd'),false);
+    assert.equal(run('faculty@bracu.ac.bd','session').role,'supervisor');
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'admin@bracu.ac.bd'}),/Unknown API action/);
+  }finally{context.LockService=oldLock;props.FACULTY_DIRECTORY_JSON=oldDirectory;delete props.PRIME_ADMIN_EMAILS_JSON;delete props.PRIME_ROLE_AUDIT_JSON;}
 });
 test('blank indexed evaluator comments cannot override a master comment or conceal official marks',()=>{
   const blank=[...evaluations,{...evaluations[0],evaluator:'Judge C',comment:''}];
@@ -191,7 +206,7 @@ test('only the Prime Administrator can preview another role, and previews are re
   const options=run('partha.bhoumik@bracu.ac.bd','previewCandidates');
   assert.equal(options.faculty[0].email,'faculty@bracu.ac.bd');
   assert.equal(options.faculty[0].name,'Faculty A');
-  assert.throws(()=>run('admin@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
+  assert.throws(()=>run('admin@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/not authorized/);
   assert.throws(()=>run('faculty@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'}),/Not authorized/);
   const student=run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'});
   assert.equal(student.role,'student');
@@ -199,8 +214,9 @@ test('only the Prime Administrator can preview another role, and previews are re
   assert.equal(student.data.evaluations.find(e=>e.phase==='P2').score,8);
   const supervisor=run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'faculty@bracu.ac.bd'});
   assert.deepEqual(Array.from(supervisor.data.groups,g=>g.id),['T2530123']);
-  const admin=run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'});
-  assert.equal(admin.role,'admin');assert.equal(admin.data,null);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'}),/Invalid preview role/);
+  const prime=run('partha.bhoumik@bracu.ac.bd','preview',{role:'prime_admin'});
+  assert.equal(prime.role,'prime_admin');assert.equal(prime.data,null);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'unknown@g.bracu.ac.bd'}),/No student record/);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'unknown@bracu.ac.bd'}),/Faculty email not in/);
 });
@@ -270,7 +286,7 @@ test('Prime Admin type-ahead resolves partial student, faculty, and group querie
     assert.throws(()=>context.adminSearch_('','All stages','All types',roster,assigned,0,'unverified@bracu.ac.bd'),/not verified/);
     assert.equal(context.suggestAcademic_('a',roster,assigned).items.length,0);
     assert.throws(()=>context.suggestAcademic_('a'.repeat(101),roster,assigned),/too long/);
-    assert.throws(()=>run('admin@bracu.ac.bd','suggest',{q:'par'}),/Not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','suggest',{q:'par'}),/not authorized/);
   }finally{props.FACULTY_DIRECTORY_JSON=old;}
 });
 test('faculty inline edits require Prime Admin, reject conflicts, and audit exact source cells',()=>{
@@ -295,7 +311,7 @@ test('faculty inline edits require Prime Admin, reject conflicts, and audit exac
   try{
     const edit={email:'faculty@bracu.ac.bd',field:'designation',expected:'Lecturer',value:'Senior Lecturer'};
     assert.throws(()=>run('faculty@bracu.ac.bd','updateFaculty',edit),/Not authorized/);
-    assert.throws(()=>run('admin@bracu.ac.bd','updateFaculty',edit),/Not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','updateFaculty',edit),/not authorized/);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,expected:'Outdated'}),/changed since/);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'other@bracu.ac.bd'}),/already belongs/);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'faculty@gmail.com'}),/University faculty/);
@@ -332,38 +348,41 @@ test('official Faculty Details rows populate the secure directory without manual
     assert.equal(faculty.name,'Faculty A');assert.equal(faculty.initial,'FA');
     assert.equal(faculty.designation,'Lecturer');assert.equal(faculty.room,'4A20');
     assert.equal(faculty.groups,1);
-    assert.throws(()=>run('admin@bracu.ac.bd','facultyList'),/Not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','facultyList'),/not authorized/);
   } finally {
     context.SpreadsheetApp=previous;
     delete props.FACULTY_AUTO_PARTS;delete props.FACULTY_AUTO_UPDATED;
     for(const key of Object.keys(props))if(key.startsWith('FACULTY_AUTO_'))delete props[key];
   }
 });
-test('deadline source keeps P1/P2/Defense and retains rich-text links',()=>{
+test('deadline source keeps general, P1 and early-defense deadlines and retains rich-text links',()=>{
   const previous=context.SpreadsheetApp;
-  const rows=[['ALL','Information update','Monday','21 September','Expired','Click here'],['Pre-Thesis 1','Report submission','Friday','7 October','Expired','Click here'],['','Poster submission','Saturday','8 October','Reference','Link']];
+  const rows=[['ALL','Information update','Monday','21 September','Expired','Click here'],['Pre-Thesis 1','Report submission','Friday','7 October','Expired','Click here'],['','Poster submission','Saturday','8 October','Reference','Link'],['Early Defense','Early Defense form','Tuesday','12 October','Expired','Link']];
   const rich=rows.map((row,i)=>row.map((_,j)=>({getLinkUrl:()=>j===5&&i===1?'https://forms.gle/example':null,getRuns:()=>[]})));
-  context.SpreadsheetApp={openById:()=>({getSheetByName:()=>({getLastRow:()=>4,getRange:()=>({getDisplayValues:()=>rows,getRichTextValues:()=>rich})})})};
+  context.SpreadsheetApp={openById:()=>({getSheetByName:()=>({getLastRow:()=>5,getRange:()=>({getDisplayValues:()=>rows,getRichTextValues:()=>rich})})})};
   try {
     const result=run('partha.bhoumik@bracu.ac.bd','deadlines').entries;
-    assert.deepEqual(Array.from(result,x=>x.phase),['P1','P1']);
-    assert.equal(result[0].url,'https://forms.gle/example');
+    assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1','Defense']);
+    assert.equal(result[1].url,'https://forms.gle/example');
+    assert.match(result[3].title,/Early Defense/);
   } finally {context.SpreadsheetApp=previous;}
 });
 
-test('every authenticated role sees the same three academic deadline phases',()=>{
-  const old=context.deadlineLinks_;
-  context.deadlineLinks_=()=>[
+test('students see general and their own stage; faculty and Prime Admins see all deadlines',()=>{
+  const old=context.academicInformation_;
+  context.academicInformation_=()=>({deadlines:[
     {id:'g',phase:'General',title:'General reference'},
     {id:'p1',phase:'P1',title:'P1 submission'},
     {id:'p2',phase:'P2',title:'P2 submission'},
     {id:'ft',phase:'Defense',title:'Final defense'},
-  ];
+  ],resources:[{id:'r1',phase:'General',title:'Thesis template',url:'https://example.com'}]});
   try {
-    assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
-    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
-    assert.deepEqual(Array.from(run('partha.bhoumik@bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
-  }finally{context.deadlineLinks_=old;}
+    assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['g','p2']);
+    assert.deepEqual(Array.from(run('second@g.bracu.ac.bd','deadlines').entries,x=>x.id),['g','ft']);
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft']);
+    assert.deepEqual(Array.from(run('partha.bhoumik@bracu.ac.bd','deadlines').entries,x=>x.id),['g','p1','p2','ft']);
+    assert.equal(run('first@g.bracu.ac.bd','resources').items[0].title,'Thesis template');
+  }finally{context.academicInformation_=old;}
 });
 
 test('administrator notices stay private until published; public feed never exposes draft or author details',()=>{
@@ -392,12 +411,13 @@ test('administrator notices stay private until published; public feed never expo
     const item={kind:'Event',title:'Thesis Workshop',body:'Research methods workshop for thesis students',eventDate:'2026-11-16',location:'Annex 3',url:'https://www.bracu.ac.bd',pinned:true};
     assert.throws(()=>run('faculty@bracu.ac.bd','saveAnnouncement',{...item,status:'published'}),/Not authorized/);
     assert.throws(()=>run('first@g.bracu.ac.bd','saveAnnouncement',{...item,status:'published'}),/Not authorized/);
-    assert.throws(()=>run('admin@bracu.ac.bd','saveAnnouncement',{...item,url:'javascript:alert(1)',status:'published'}),/safe HTTPS/);
-    const saved=run('admin@bracu.ac.bd','saveAnnouncement',{...item,status:'draft'}).item;
+    assert.throws(()=>run('admin@bracu.ac.bd','saveAnnouncement',{...item,status:'published'}),/Not authorized/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','saveAnnouncement',{...item,url:'javascript:alert(1)',status:'published'}),/safe HTTPS/);
+    const saved=run('partha.bhoumik@bracu.ac.bd','saveAnnouncement',{...item,status:'draft'}).item;
     assert.equal(saved.status,'draft');
     assert.equal(context.request_({action:'publicAnnouncements'}).items.length,0);
     assert.equal(run('partha.bhoumik@bracu.ac.bd','announcements').items.length,1);
-    run('admin@bracu.ac.bd','statusAnnouncement',{id:saved.id,status:'published'});
+    run('partha.bhoumik@bracu.ac.bd','statusAnnouncement',{id:saved.id,status:'published'});
     const publicItem=context.request_({action:'publicAnnouncements'}).items[0];
     assert.equal(publicItem.title,'Thesis Workshop');
     assert.equal(publicItem.pinned,true);

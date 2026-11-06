@@ -17,6 +17,7 @@ Empty comments, spreadsheet error markers, and formula-generated "No Comments" o
 - The Prime Admin **Semester Sources** page shows linked semester managers read-only. The old manual source registration form and corresponding API routes are removed.
 - Optional historical index synchronization remains available for historical semester statistics, but **no longer controls which comments appear** in student, supervisor, or admin details.
 - The Prime Admin role-preview dialog searches students by partial names/IDs/emails. In Faculty preview, type initials/name/email to filter the verified faculty dropdown, or choose from the alphabetical full list; a separate email field also accepts a verified faculty Workspace address directly. List labels omit Mr./Ms./Mrs. while retaining Dr.; sorting ignores titles and uses the faculty's actual name. All preview requests remain authorized under the signed-in Prime Admin identity.
+- Autocomplete results in the role-preview modal scroll with the dialog under the mouse pointer, including short result lists; Up/Down selection automatically brings the highlighted result into view.
 - Prime Admin student details, student evaluations, and authorized supervisor group details all display master group comments.
 
 ## Deploy

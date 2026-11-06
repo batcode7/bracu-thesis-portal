@@ -1,3 +1,5 @@
+import { readD1Action } from '../d1/read.mjs';
+
 /**
  * BRACU Portal secure HTTP handler. Used by Cloudflare Pages Functions.
  * It validates Google Workspace ID tokens cryptographically and forwards only
@@ -8,7 +10,7 @@ const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
   'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','preview','previewCandidates',
-  'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty',
+  'registry','primeAdmins','addPrimeAdmin','removePrimeAdmin','faculty','facultyList','setFaculty','resources',
   'sync','restartSync','aliases','setAlias','removeAlias',
   'announcements','saveAnnouncement','statusAnnouncement','updateFaculty'
 ]);
@@ -165,7 +167,9 @@ export default {
       if(text.length>24000)return json({ok:false,error:'Request too large'},413,expected);
       const payload=text ? JSON.parse(text) : {};
       if (Array.isArray(payload) || typeof payload !== 'object' || !payload) return json({ok:false,error:'Invalid request'},400,expected);
-      const data=await forwardToAppsScript(action==='login'?'session':action,payload,principal,env);
+      const routedAction=action==='login'?'session':action;
+      const accelerated=await readD1Action(routedAction,principal,env);
+      const data=accelerated?.handled?accelerated.data:await forwardToAppsScript(routedAction,payload,principal,env);
       const response=json({ok:true,data},200,expected);
       if(action==='login')response.headers.set('set-cookie',sessionCookie(await signSession(principal,env),SESSION_TTL));
       return response;
