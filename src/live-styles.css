@@ -46,3 +46,6 @@
 .live-feedback{white-space:pre-line;overflow-wrap:anywhere}
 @media(max-width:1050px){.admin-query{align-items:stretch;flex-direction:column}.query-filters{flex-wrap:wrap}}
 @media(max-width:700px){.live-login{padding:35px 22px}.live-login h1{font-size:22px}.live-role{font-size:10px}.mark-summary{grid-template-columns:repeat(2,1fr)}.detail-pairs{grid-template-columns:1fr}.query-filters>*{flex:1}.query-filters select{min-width:110px}.admin-query{padding:17px}.source-live-list>div{flex-direction:column;gap:7px}.admincard>.formrow>*{width:100%}.live-logout{align-self:flex-start}}
+
+.sync-progress{border:1px solid #dceaf3;border-radius:10px;background:#f6fbfe;padding:17px;margin-top:18px;color:#48697f}.sync-progress-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.sync-progress-heading strong{color:#285574}.sync-progress-heading span:last-child{margin-left:auto;font-size:12px;color:#7b99aa}.sync-progress progress{display:block;width:100%;height:12px;accent-color:#2982a4;margin:10px 0}.sync-progress small{font-size:11px}.sync-progress ul{color:#ab544e;font-size:11px;padding-left:20px}.sync-spinner{width:16px;height:16px;border:2px solid #b6d9eb;border-top-color:#2078a3;border-radius:50%;animation:sync-spin .8s linear infinite}@keyframes sync-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sync-spinner{animation:none}}

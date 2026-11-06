@@ -1,6 +1,6 @@
 # Deploy BRACU Thesis Portal with GitHub + Cloudflare Pages
 
-This is the recommended **single Cloudflare Pages project** deployment. It hosts both the Vite frontend and the secure Pages Functions API. The Google Apps Script project you already deployed remains unchanged.
+This is the recommended **single Cloudflare Pages project** deployment. It hosts both the Vite frontend and the secure Pages Functions API. For this upgrade, update the **existing** Apps Script deployment to a new version before pushing the frontend; keep the same Web app URL. See [UPGRADE_V7.md](UPGRADE_V7.md).
 
 **Never commit the `BRIDGE_SECRET`, Google passwords, a client secret, student records, or `.env.local` to GitHub.** Create a **private** GitHub repository while the system is being tested. Note that private source code does not automatically make a `*.pages.dev` website private; the server must continue enforcing login and per-record permissions.
 
@@ -61,9 +61,12 @@ In your Cloudflare Pages project, open **Settings → Variables and Secrets**. U
 | --- | --- | --- |
 | Plain text | `VITE_PORTAL_MODE` | `live` |
 | Plain text | `VITE_GOOGLE_CLIENT_ID` | `913503508398-omvltps9211nqdefuga8jcq1bvb1bi7f.apps.googleusercontent.com` |
+| Plain text | `GOOGLE_CLIENT_ID` | The exact same public OAuth Web Client ID (for server-side audience verification) |
+| Plain text | `APP_ORIGIN` | Exact production site origin, e.g. `https://bracu-thesis-portal.pages.dev`, without a trailing `/` |
 | Plain text | `GOOGLE_HOSTED_DOMAINS` | `bracu.ac.bd,g.bracu.ac.bd` (verify actual Google Workspace hosted-domain claims) |
 | **Encrypted secret** | `APPS_SCRIPT_URL` | Your already-deployed `https://script.google.com/macros/s/.../exec` URL |
 | **Encrypted secret** | `BRIDGE_SECRET` | The **same** 64-character key you saved in Apps Script `Script Properties` |
+| Optional encrypted secret | `SESSION_SIGNING_SECRET` | An independent random string of at least 32 characters for signing HttpOnly sessions; otherwise `BRIDGE_SECRET` is used |
 
 You may configure these for Preview too **only if you intend to let previews access live academic records**. Otherwise, restrict the live configuration to Production. Do not set `VITE_API_BASE_URL`: requests use the same Pages origin and relative `/v1/...` URLs.
 
@@ -83,9 +86,9 @@ If you later add your own domain, add that domain as an authorized JavaScript or
 
 1. Visit the published Pages URL. You should see the **Google sign-in screen**, not the demo role selector.
 2. Sign in as `partha.bhoumik@bracu.ac.bd`. The server must return `prime_admin`.
-3. Add faculty email → exact supervisor name/initial mappings in **Administrators**.
+3. Open **Faculty List** and verify that official faculty names with or without `Mr.`, `Ms.`, etc. resolve to the same identity; use approved inline edits only when needed.
 4. Map any student's BRAC email to their 8-digit Student ID if their master-sheet row contains a personal email.
-5. Register semester manager IDs and **Sync / continue** P1/P2/Defense until each is complete. Allow the Apps Script owner to open every evaluator workbook; inaccessible workbooks fail the sync.
+5. Register semester manager IDs and choose **Sync all batches** for P1/P2/Defense until each is complete. Allow the Apps Script owner to open every evaluator workbook; inaccessible workbooks fail the sync.
 6. Review mandatory comments, then publish a phase. The backend blocks publication if synchronized evaluator records contain blank marks or comments.
 7. Test accounts for a student, supervisor, admin and unauthorized Gmail user; confirm row-level data separation.
 
@@ -105,7 +108,7 @@ Cloudflare Pages automatically rebuilds your production branch when you push to 
 
 - `src/live-api.ts` fetches the same-origin `/v1/<action>` API.
 - `functions/v1/[action].js` authenticates calls using `backend/api/handler.mjs`.
-- The handler validates Google ID-token signature, issuer, audience, expiry, verified email and Workspace hosted domain, then calls Apps Script with a server-side shared secret.
+- The handler validates Google ID-token signature, issuer, audience, expiry, verified email and Workspace hosted domain. It issues a two-hour Secure/HttpOnly/SameSite cookie so refresh does not require a new login, then calls Apps Script with a server-side shared secret. Each backend action rechecks the real user's role; sign-out clears the cookie.
 - Apps Script independently authorizes students, assigned supervisors, admins and the one Prime Administrator.
 - The private semester comment index is separate from the university source Sheets.
 - Root `.gitignore` excludes local environment files, local secrets, dependencies and generated build output from **new** GitHub repositories.

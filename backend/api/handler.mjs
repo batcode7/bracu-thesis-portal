@@ -7,11 +7,13 @@
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
-  'session','student','supervisor','deadlines','search','detail','summary','overview','preview','previewCandidates',
+  'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','preview','previewCandidates',
   'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty',
   'registerSemester','sync','restartSync','release','aliases','setAlias','removeAlias',
-  'announcements','saveAnnouncement','statusAnnouncement'
+  'announcements','saveAnnouncement','statusAnnouncement','updateFaculty'
 ]);
+const SESSION_COOKIE='bracu_portal_session';
+const SESSION_TTL=2*60*60;
 let jwksCache = { until: 0, keys: [] };
 
 const json = (value, status, origin) => new Response(JSON.stringify(value), {
@@ -34,6 +36,35 @@ function base64url(input) {
 }
 function decodedJson(part) { return JSON.parse(new TextDecoder().decode(base64url(part))); }
 function identityError(message) { const error = new Error(message); error.status = 401; return error; }
+function bytesUrl(bytes) {return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+async function sessionKey(env) {
+  const secret=env.SESSION_SIGNING_SECRET||env.BRIDGE_SECRET;
+  if(typeof secret!=='string'||secret.length<32){const err=new Error('Session signing is not configured');err.status=503;throw err;}
+  return crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+}
+async function signSession(principal,env) {
+  const now=Math.floor(Date.now()/1000);
+  const value=bytesUrl(new TextEncoder().encode(JSON.stringify({v:1,sub:principal.sub,email:principal.email,name:principal.name,iat:now,exp:now+SESSION_TTL})));
+  const signature=await crypto.subtle.sign('HMAC',await sessionKey(env),new TextEncoder().encode('BRACU_SESSION_V1.'+value));
+  return `${value}.${bytesUrl(new Uint8Array(signature))}`;
+}
+async function readSession(request,env) {
+  const header=request.headers.get('cookie')||'';
+  const encoded=header.split(';').map(v=>v.trim()).find(v=>v.startsWith(SESSION_COOKIE+'='))?.slice(SESSION_COOKIE.length+1)||'';
+  const parts=encoded.split('.');if(parts.length!==2||encoded.length>4000)throw identityError('Sign in again to continue');
+  let valid,data;
+  try{
+    valid=await crypto.subtle.verify('HMAC',await sessionKey(env),base64url(parts[1]),new TextEncoder().encode('BRACU_SESSION_V1.'+parts[0]));
+    if(!valid)throw identityError('Invalid portal session');
+    data=decodedJson(parts[0]);
+  }catch(error){if(error.status===503)throw error;throw identityError('Invalid portal session');}
+  const now=Math.floor(Date.now()/1000);
+  if(data.v!==1||!Number.isInteger(data.exp)||data.exp<=now||data.exp>now+SESSION_TTL||!Number.isInteger(data.iat)||data.iat>now+60||
+     typeof data.sub!=='string'||data.sub.length<5||typeof data.name!=='string'||typeof data.email!=='string'||
+     !/^[a-z0-9._%+\-]+@(?:g\.)?bracu\.ac\.bd$/.test(data.email))throw identityError('Portal session expired');
+  return {sub:data.sub,email:data.email,name:data.name};
+}
+function sessionCookie(value,maxAge) {return `${SESSION_COOKIE}=${value}; HttpOnly; Secure; SameSite=Strict; Path=/v1; Max-Age=${maxAge}`;}
 async function googleKeys() {
   if (Date.now() < jwksCache.until && jwksCache.keys.length) return jwksCache.keys;
   const response = await fetch(JWKS_URL, { headers: {accept:'application/json'} });
@@ -122,16 +153,22 @@ export default {
     const action=url.pathname.replace(/^\/+|\/+$/g,'').replace(/^v1\//,'');
     if (request.method !== 'POST' || !ROUTES.has(action)) return json({ok:false,error:'Unknown endpoint'},404,expected);
     if ((Number(request.headers.get('content-length'))||0)>24000) return json({ok:false,error:'Request too large'},413,expected);
-    const authorization=request.headers.get('authorization')||'';
-    if (!authorization.startsWith('Bearer ')) return json({ok:false,error:'Google sign-in required'},401,expected);
     try {
-      const principal=await verifyGoogleToken(authorization.slice(7),env);
+      if(action==='logout'){
+        const response=json({ok:true,data:{signedOut:true}},200,expected);
+        response.headers.set('set-cookie',sessionCookie('',0));return response;
+      }
+      const authorization=request.headers.get('authorization')||'';
+      if(action==='login'&&!authorization.startsWith('Bearer '))throw identityError('Verified Google sign-in required');
+      const principal=authorization.startsWith('Bearer ')?await verifyGoogleToken(authorization.slice(7),env):await readSession(request,env);
       const text=await request.text();
       if(text.length>24000)return json({ok:false,error:'Request too large'},413,expected);
       const payload=text ? JSON.parse(text) : {};
       if (Array.isArray(payload) || typeof payload !== 'object' || !payload) return json({ok:false,error:'Invalid request'},400,expected);
-      const data=await forwardToAppsScript(action,payload,principal,env);
-      return json({ok:true,data},200,expected);
+      const data=await forwardToAppsScript(action==='login'?'session':action,payload,principal,env);
+      const response=json({ok:true,data},200,expected);
+      if(action==='login')response.headers.set('set-cookie',sessionCookie(await signSession(principal,env),SESSION_TTL));
+      return response;
     } catch(error) {
       const status = error.status || (error instanceof SyntaxError ? 400 : 502);
       const publicMessage = status === 502 ? 'Google data service unavailable' : (error.message||'Request failed');

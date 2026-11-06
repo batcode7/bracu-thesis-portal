@@ -3,14 +3,14 @@ import { evaluations, groups, semesterSources, students, type Evaluation, type S
 export interface StudentDashboard {
   student: Student;
   group: ThesisGroup;
-  members?: Array<{id: string; name: string}>;
+  members?: Array<{id: string; name: string; email?: string}>;
   facultyContacts?: Array<{slot: string; name: string; email: string; room: string; designation: string}>;
   evaluations: Evaluation[];
 }
 export interface SupervisorDashboard {
   supervisorEmail: string;
   students: Array<Student & { progress?: { p1: boolean; p2: boolean; defense: boolean } }>;
-  groups: Array<ThesisGroup & {facultyContacts?:Array<{slot:string;name:string;email:string;room:string;designation:string}>}>;
+  groups: Array<ThesisGroup & {myRoles?:Array<'Supervisor'|'Co-Supervisor'>;facultyContacts?:Array<{slot:string;name:string;email:string;room:string;designation:string}>}>;
 }
 export interface PortalApi {
   studentDashboard(): Promise<StudentDashboard>;

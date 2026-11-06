@@ -120,11 +120,115 @@ test('only the Prime Administrator can preview another role, and previews are re
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'unknown@bracu.ac.bd'}),/Faculty email not in/);
 });
 test('Prime overview distinguishes actual master records from released semester statistics',()=>{
-  const report=run('partha.bhoumik@bracu.ac.bd','overview');
-  assert.equal(report.students,2);assert.equal(report.groups,2);
-  assert.equal(report.recorded.P1,2);assert.equal(report.recorded.Defense,1);
-  assert.equal(report.semesters[0].P1.students,0); // default semester is Summer 2026
-  assert.throws(()=>run('first@g.bracu.ac.bd','overview'),/Not authorized/);
+  const previous=context.rows_;
+  context.rows_=(id,tab)=>tab==='All student info'?[['','22101234','First','T2530123',''],['','22104567','Second','T2530124','']]:tab==='Group info'?[['','T2530123','Thesis','Pre-Thesis 2'],['','T2530124','Project','Final Thesis']]:[];
+  try{
+    const report=run('partha.bhoumik@bracu.ac.bd','overview');
+    assert.equal(report.students,2);assert.equal(report.groups,2);
+    assert.equal(report.recorded.P1,2);assert.equal(report.recorded.Defense,1);
+    assert.equal(report.diagnostics.stageGroups.P2,1);
+    assert.equal(report.diagnostics.stageGroups.Defense,1);
+    assert.equal(report.diagnostics.unmatchedStudents,0);
+    assert.equal(report.semesters[0].P1.students,0); // default semester is Summer 2026
+    assert.throws(()=>run('first@g.bracu.ac.bd','overview'),/Not authorized/);
+  }finally{context.rows_=previous;}
+});
+
+test('faculty honorific normalization merges all verified assignments without granting ambiguous names',()=>{
+  const old=props.FACULTY_DIRECTORY_JSON;
+  try{
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([{email:'partha.bhoumik@bracu.ac.bd',names:['Mr. Partha Bhoumik'],initial:'PB'}]);
+    const list=Array.from({length:32},(_,i)=>({id:'T'+String(2530000+i),title:'Test',stage:'Pre-Thesis 1',type:'Thesis',primarySupervisor:i<20?'Mr. Partha Bhoumik':'  PARTHA   BHOUMIK  ',coSupervisor1:i===0?'Partha Bhoumik':''}));
+    assert.equal(context.facultyKey_('Mrs.  Partha  Bhoumik'),'partha bhoumik');
+    assert.equal(context.facultyGroups_('partha.bhoumik@bracu.ac.bd',list).length,32);
+    assert.equal(context.facultyList_(list).find(f=>f.email==='partha.bhoumik@bracu.ac.bd').groups,32);
+    assert.deepEqual(Array.from(context.groupAssignmentRoles_('partha.bhoumik@bracu.ac.bd',list[0],context.facultyDirectory_())),['Supervisor','Co-Supervisor']);
+    // Two distinct directory email identities with the same normalized name are ambiguous.
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([{email:'partha.bhoumik@bracu.ac.bd',names:['Mr. Partha Bhoumik']},{email:'other@bracu.ac.bd',names:['Partha Bhoumik']}]);
+    assert.equal(context.facultyGroups_('partha.bhoumik@bracu.ac.bd',list).length,0);
+    assert.equal(context.facultyList_(list).filter(f=>f.source.includes('ambiguous')).length,1);
+  }finally{props.FACULTY_DIRECTORY_JSON=old;}
+});
+test('administrative searches paginate all registered students instead of hiding records after 100',()=>{
+  const roster=Array.from({length:205},(_,i)=>({id:String(22000000+i),name:'Synthetic '+i,email:'',thesisId:'T2530123',aliases:[]}));
+  const first=context.adminSearch_('','All stages','All types',roster,groups,0);
+  const third=context.adminSearch_('','All stages','All types',roster,groups,200);
+  assert.equal(first.total,205);assert.equal(first.rows.length,100);
+  assert.equal(third.rows.length,5);assert.equal(third.rows[0].student.id,roster[200].id);
+});
+test('Prime Admin type-ahead resolves partial student, faculty, and group queries safely',()=>{
+  const old=props.FACULTY_DIRECTORY_JSON;
+  try{
+    props.FACULTY_DIRECTORY_JSON=JSON.stringify([{email:'partha.bhoumik@bracu.ac.bd',names:['Mr. Partha Bhoumik'],initial:'PB'}]);
+    const roster=[
+      {id:'22101234',name:'Ayesha Rahman',email:'ayesha@g.bracu.ac.bd',thesisId:'T2530123',aliases:[]},
+      {id:'22104567',name:'Tahmid Islam',email:'tahmid@g.bracu.ac.bd',thesisId:'T2530124',aliases:[]},
+    ];
+    const assigned=[
+      {id:'T2530123',title:'Secure Payment Systems',type:'Thesis',stage:'Pre-Thesis 1',primarySupervisor:'Partha Bhoumik'},
+      {id:'T2530124',title:'Neural Research',type:'Thesis',stage:'Pre-Thesis 2',primarySupervisor:'Different Faculty'},
+    ];
+    const byStudent=context.suggestAcademic_('2210',roster,assigned).items;
+    assert.equal(byStudent.filter(s=>s.kind==='student').length,2);
+    const byName=context.suggestAcademic_('ayesh',roster,assigned).items;
+    assert.equal(byName[0].id,'22101234');
+    const byGroup=context.suggestAcademic_('T2530',roster,assigned).items;
+    assert.ok(byGroup.some(s=>s.kind==='group'&&s.id==='T2530123'));
+    const byFaculty=context.suggestAcademic_('par',roster,assigned).items;
+    assert.ok(byFaculty.some(s=>s.kind==='faculty'&&s.id==='partha.bhoumik@bracu.ac.bd'));
+    const selection=context.adminSearch_('','All stages','All types',roster,assigned,0,'partha.bhoumik@bracu.ac.bd');
+    assert.deepEqual(Array.from(selection.rows,r=>r.student.id),['22101234']);
+    assert.throws(()=>context.adminSearch_('','All stages','All types',roster,assigned,0,'unverified@bracu.ac.bd'),/not verified/);
+    assert.equal(context.suggestAcademic_('a',roster,assigned).items.length,0);
+    assert.throws(()=>context.suggestAcademic_('a'.repeat(101),roster,assigned),/too long/);
+    assert.throws(()=>run('admin@bracu.ac.bd','suggest',{q:'par'}),/Not authorized/);
+  }finally{props.FACULTY_DIRECTORY_JSON=old;}
+});
+test('faculty inline edits require Prime Admin, reject conflicts, and audit exact source cells',()=>{
+  const original={spreadsheet:context.SpreadsheetApp,lock:context.LockService};
+  const source=[['Initial','Name','Designation','Status','Room','Email'],['FA','Faculty A','Lecturer','Active','4A20','faculty@bracu.ac.bd'],['FB','Faculty B','Professor','Active','4A21','other@bracu.ac.bd']];
+  const auditRows=[];
+  const sheetFor=(values)=>({
+    getLastRow:()=>values.length,setName:()=>{},appendRow:r=>{values.push(r);},
+    getRange:(row,column,height=1,width=1)=>({
+      getDisplayValues:()=>Array.from({length:height},(_,i)=>Array.from({length:width},(_,j)=>values[row+i-1]?.[column+j-1]||'')),
+      setNumberFormat(){return this;},
+      setValue:value=>{values[row-1][column-1]=value;},
+      setValues:input=>{input.forEach((r,i)=>{values[row+i-1]=r;});},
+    }),
+  });
+  const official=sheetFor(source),audit=sheetFor(auditRows);
+  context.SpreadsheetApp={
+    openById:id=>({getSheetByName:name=>id==='audit-test'&&name==='FacultyEdits'?audit:name==='Faculty Details'?official:null}),
+    create:()=>({getId:()=> 'audit-test',getSheets:()=>[audit]}),
+  };
+  context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
+  try{
+    const edit={email:'faculty@bracu.ac.bd',field:'designation',expected:'Lecturer',value:'Senior Lecturer'};
+    assert.throws(()=>run('faculty@bracu.ac.bd','updateFaculty',edit),/Not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','updateFaculty',edit),/Not authorized/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,expected:'Outdated'}),/changed since/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'other@bracu.ac.bd'}),/already belongs/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'faculty@gmail.com'}),/University faculty/);
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'initial',expected:'FA',value:'FB'}),/already belongs/);
+    const realAppend=audit.appendRow;
+    audit.appendRow=()=>{throw new Error('Audit write unavailable');};
+    assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',edit),/Audit write unavailable/);
+    assert.equal(source[1][2],'Lecturer');
+    audit.appendRow=realAppend;
+    const response=run('partha.bhoumik@bracu.ac.bd','updateFaculty',edit);
+    assert.equal(response.updated,true);
+    assert.equal(source[1][2],'Senior Lecturer');
+    assert.equal(source[1][4],'4A20');
+    assert.equal(auditRows.length,2);
+    assert.equal(auditRows[1][1],'partha.bhoumik@bracu.ac.bd');
+    assert.equal(auditRows[1][4],'designation');
+    assert.equal(context.facultyDirectory_().find(f=>f.email==='faculty@bracu.ac.bd').designation,'Senior Lecturer');
+  }finally{
+    context.SpreadsheetApp=original.spreadsheet;context.LockService=original.lock;
+    delete props.FACULTY_AUDIT_SHEET_ID;delete props.FACULTY_AUTO_PARTS;delete props.FACULTY_AUTO_UPDATED;
+    for(const key of Object.keys(props))if(key.startsWith('FACULTY_AUTO_'))delete props[key];
+  }
 });
 test('official Faculty Details rows populate the secure directory without manually entered emails',()=>{
   const previous=context.SpreadsheetApp;

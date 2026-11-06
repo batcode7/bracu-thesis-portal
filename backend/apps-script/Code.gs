@@ -22,6 +22,19 @@ function prop_(key, fallback) { return scriptProps_().getProperty(key) || fallba
 function jsonProp_(key, fallback) { try { var value = prop_(key); return value ? JSON.parse(value) : fallback; } catch (_) { return fallback; } }
 function setJsonProp_(key, value) { scriptProps_().setProperty(key, JSON.stringify(value)); }
 function norm_(value) { return String(value === null || value === undefined ? '' : value).trim().toLowerCase(); }
+// Honorifics and innocuous punctuation do not create new identities. A matching
+// name must still resolve to exactly ONE official directory email.
+function facultyKey_(value) {
+  return String(value||'').normalize('NFKC').trim().replace(/^(?:(?:mr|mrs|ms|miss|dr|prof|professor)\.?\s+)+/gi,'')
+    .replace(/[.\u2019']/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function facultyMatches_(name,directory) {
+  var key=facultyKey_(name);if(!key)return [];
+  return directory.filter(function(f){return (f.names||[]).some(function(n){return facultyKey_(n)===key;});});
+}
+function verifiedFaculty_(name,directory) {
+  var matches=facultyMatches_(name,directory);return matches.length===1?matches[0]:null;
+}
 function root_(email) { return norm_(email) === PRIME_ADMIN_EMAIL; }
 function validBracEmail_(email) { return /^[a-z0-9._%+\-]+@(?:g\.)?bracu\.ac\.bd$/i.test(email); }
 function refuse_(message) { throw new Error(message); }
@@ -31,8 +44,17 @@ function sameSecret_(supplied, expected) {
   var mismatch = 0; for (var i = 0; i < expected.length; i++) mismatch |= supplied.charCodeAt(i) ^ expected.charCodeAt(i);
   return mismatch === 0;
 }
-function isValidStudentId_(id) { return /^[0-9]{8}$/.test(String(id)); }
+function isValidStudentId_(id) { return /^[0-9]{8}$/.test(String(id).trim()); }
 function isValidGroupId_(id) { return /^[TPI][0-9]{6,12}$/i.test(String(id)); }
+function groupId_(value) {return String(value===undefined||value===null?'':value).trim().toUpperCase().replace(/\s+/g,'');}
+function stageBucket_(stage) {
+  var s=norm_(stage).replace(/[\s_-]+/g,'');
+  if(/^(prethesis1|p1|pre1)$/.test(s))return 'P1';
+  if(/^(prethesis2|p2|pre2)$/.test(s))return 'P2';
+  if(/(final|defense|defence|ft)/.test(s))return 'Defense';
+  if(/(complete|finished|graduat)/.test(s))return 'Completed';
+  return 'Other';
+}
 function number_(value) { var str = String(value === undefined || value === null ? '' : value).trim(); return str && /^-?\d+(\.\d+)?$/.test(str) ? Number(str) : null; }
 function rows_(id, tab, width) {
   var sheet = SpreadsheetApp.openById(id).getSheetByName(tab);
@@ -49,14 +71,14 @@ function replaceRows_(sheet, data) {
 function masterId_() { return prop_('MASTER_SHEET_ID', DEFAULT_MASTER_ID); }
 function students_() {
   var aliases = jsonProp_('STUDENT_ALIASES_JSON', {});
-  return rows_(masterId_(), 'All student info', 5).slice(1).filter(function(r){return isValidStudentId_(r[1]) && isValidGroupId_(r[3]);}).map(function(r){
+  return rows_(masterId_(), 'All student info', 5).slice(1).filter(function(r){return isValidStudentId_(r[1]);}).map(function(r){
     var stored = norm_(r[4]); var verified = Object.keys(aliases).filter(function(k){return String(aliases[k]) === String(r[1]);});
-    return { id: String(r[1]), name: String(r[2] || ''), thesisId: String(r[3]), email: stored, aliases: verified };
+    return { id: String(r[1]).trim(), name: String(r[2] || ''), thesisId: groupId_(r[3]), email: stored, aliases: verified };
   });
 }
 function groups_() {
-  return rows_(masterId_(), 'Group info', 9).slice(1).filter(function(r){return isValidGroupId_(r[1]);}).map(function(r){
-    return { id: String(r[1]), type: r[2] || 'Thesis', stage: r[3] || 'Unknown', primarySupervisor: r[4] || '', secondarySupervisor: r[5] || '', coSupervisor1: r[6] || '', coSupervisor2: r[7] || '', title: r[8] || '' };
+  return rows_(masterId_(), 'Group info', 9).slice(1).filter(function(r){return !!groupId_(r[1]) && norm_(r[1])!=='thesis id';}).map(function(r){
+    return { id: groupId_(r[1]), type: r[2] || 'Thesis', stage: r[3] || 'Unknown', primarySupervisor: r[4] || '', secondarySupervisor: r[5] || '', coSupervisor1: r[6] || '', coSupervisor2: r[7] || '', title: r[8] || '' };
   });
 }
 function marks_() {
@@ -90,7 +112,7 @@ function facultyDirectory_() {
   var byEmail={};
   autoFaculty_().concat(jsonProp_('FACULTY_DIRECTORY_JSON',[])).forEach(function(f){
     var email=norm_(f.email);if(!validBracEmail_(email)||email.indexOf('@g.')>=0)return;
-    if(!byEmail[email])byEmail[email]={email:email,names:[],initial:String(f.initial||'').trim(),designation:f.designation||'',status:f.status||'',room:f.room||''};
+    if(!byEmail[email])byEmail[email]={email:email,names:[],initial:String(f.initial||'').trim(),designation:f.designation||'',status:f.status||'',room:f.room||'',sourceRow:f.sourceRow||null};
     (f.names||[]).forEach(function(name){name=String(name||'').trim();if(name&&!byEmail[email].names.some(function(n){return norm_(n)===norm_(name);}))byEmail[email].names.push(name);});
     if(!byEmail[email].initial&&f.initial)byEmail[email].initial=String(f.initial);
   });
@@ -99,16 +121,16 @@ function facultyDirectory_() {
 function refreshFacultyDirectory_(force) {
   var updated=Date.parse(prop_('FACULTY_AUTO_UPDATED',''))||0;
   var cached=autoFaculty_();
-  if(!force && cached.length && Date.now()-updated<6*60*60*1000)return cached;
+  if(!force && cached.length && Date.now()-updated<5*60*1000)return cached;
   var book=SpreadsheetApp.openById(masterId_()),sheet=book.getSheetByName('Faculty Details');
   assert_(sheet,'Faculty Details tab is missing');
   var rows=sheet.getLastRow()>1?sheet.getRange(1,1,sheet.getLastRow(),6).getDisplayValues():[];
   assert_(rows.length && norm_(rows[0][0])==='initial' && norm_(rows[0][1])==='name' && norm_(rows[0][5])==='email','Faculty directory headers have changed');
   var records={};
-  rows.slice(1).forEach(function(r){
+  rows.slice(1).forEach(function(r,index){
     var name=String(r[1]||'').trim(),email=norm_(r[5]);
     if(!name||!validBracEmail_(email)||email.indexOf('@g.')>=0)return;
-    if(!records[email])records[email]={email:email,names:[],initial:String(r[0]||'').trim().toUpperCase(),designation:String(r[2]||'').trim(),status:String(r[3]||'').trim(),room:String(r[4]||'').trim()};
+    if(!records[email])records[email]={email:email,names:[],initial:String(r[0]||'').trim().toUpperCase(),designation:String(r[2]||'').trim(),status:String(r[3]||'').trim(),room:String(r[4]||'').trim(),sourceRow:index+2};
     if(!records[email].names.some(function(n){return norm_(n)===norm_(name);}))records[email].names.push(name);
   });
   var items=Object.keys(records).sort().map(function(email){return records[email];});
@@ -118,19 +140,19 @@ function refreshFacultyDirectory_(force) {
 // the faculty snapshot refreshes automatically, without maintaining mappings.
 function installFacultyDirectorySync() {
   ScriptApp.getProjectTriggers().filter(function(t){return t.getHandlerFunction()==='refreshFacultyDirectoryScheduled_';}).forEach(function(t){ScriptApp.deleteTrigger(t);});
-  ScriptApp.newTrigger('refreshFacultyDirectoryScheduled_').timeBased().everyHours(6).create();
+  ScriptApp.newTrigger('refreshFacultyDirectoryScheduled_').timeBased().everyHours(1).create();
   return refreshFacultyDirectory_(true).length;
 }
 function refreshFacultyDirectoryScheduled_() { refreshFacultyDirectory_(true); }
 function facultyList_(groupRows) {
   var faculty=facultyDirectory_(),used={};
   var rows=faculty.map(function(f){
-    var count=groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(name){return f.names.some(function(n){return norm_(n)===norm_(name)&&!!norm_(n);});});}).length;
-    f.names.forEach(function(name){used[norm_(name)]=true;});
+    var count=Object.keys(groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(name){var match=verifiedFaculty_(name,faculty);return match&&match.email===f.email;});}).reduce(function(ids,g){ids[g.id]=true;return ids;},{})).length;
+    f.names.forEach(function(name){used[facultyKey_(name)]=true;});
     return {name:f.names[0]||f.email,email:f.email,initial:f.initial||'',designation:f.designation||'',status:f.status||'',room:f.room||'',aliases:f.names.slice(1),groups:count,source:'Faculty Details'};
   });
-  var missing={};groupRows.forEach(function(g){[g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].forEach(function(name){name=String(name||'').trim();if(name&&!used[norm_(name)])missing[norm_(name)]=name;});});
-  Object.keys(missing).sort().forEach(function(key){rows.push({name:missing[key],email:'',initial:'',designation:'',status:'',room:'',aliases:[],groups:groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(n){return norm_(n)===key;});}).length,source:'Group info · not matched'});});
+  var missing={};groupRows.forEach(function(g){[g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].forEach(function(name){name=String(name||'').trim();var key=facultyKey_(name);if(key&&!verifiedFaculty_(name,faculty))missing[key]={name:name,ambiguous:facultyMatches_(name,faculty).length>1};});});
+  Object.keys(missing).sort().forEach(function(key){var ids={};groupRows.forEach(function(g){if([g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(n){return facultyKey_(n)===key;}))ids[g.id]=true;});rows.push({name:missing[key].name,email:'',initial:'',designation:'',status:'',room:'',aliases:[],groups:Object.keys(ids).length,source:missing[key].ambiguous?'Group info · ambiguous faculty name':'Group info · not matched'});});
   return rows.sort(function(a,b){return a.name.localeCompare(b.name);});
 }
 function adminEmails_() { return jsonProp_('ADMIN_EMAILS_JSON', []); }
@@ -148,10 +170,50 @@ function auditPreview_(actor,role,target) {
   setJsonProp_('PRIME_PREVIEW_AUDIT_JSON',events.slice(-24));
 }
 function facultyGroups_(email, groupRows) {
-  var faculty = facultyDirectory_().filter(function(f){return norm_(f.email) === email;})[0];
+  var directory=facultyDirectory_(),faculty = directory.filter(function(f){return norm_(f.email) === email;})[0];
   if (!faculty) return [];
-  var names = (faculty.names || []).map(norm_);
-  return groupRows.filter(function(g){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(name){return names.indexOf(norm_(name)) >= 0 && !!norm_(name);});});
+  var seen={};return groupRows.filter(function(g){if(seen[g.id])return false;var assigned=[g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(name){var match=verifiedFaculty_(name,directory);return !!match&&match.email===email;});if(assigned)seen[g.id]=true;return assigned;});
+}
+function groupAssignmentRoles_(email,group,directory) {
+  function assigned(name){var match=verifiedFaculty_(name,directory);return !!match&&match.email===email;}
+  var roles=[];
+  if(assigned(group.primarySupervisor)||assigned(group.secondarySupervisor))roles.push('Supervisor');
+  if(assigned(group.coSupervisor1)||assigned(group.coSupervisor2))roles.push('Co-Supervisor');
+  return roles;
+}
+function facultyAuditSheet_() {
+  var id=prop_('FACULTY_AUDIT_SHEET_ID'),book;
+  if(!id){book=SpreadsheetApp.create('BRACU Thesis Portal — Faculty Edit Audit');scriptProps_().setProperty('FACULTY_AUDIT_SHEET_ID',book.getId());
+    var first=book.getSheets()[0];first.setName('FacultyEdits');first.getRange(1,1,1,7).setValues([['Timestamp','Editor','Faculty Email','Source Row','Field','Old Value','New Value']]);return first;}
+  book=SpreadsheetApp.openById(id);var sheet=book.getSheetByName('FacultyEdits');assert_(sheet,'Faculty audit sheet missing');return sheet;
+}
+function updateFacultyField_(p,editor) {
+  var columns={initial:1,designation:3,room:5,email:6},field=String(p.field||'');
+  assert_(Object.prototype.hasOwnProperty.call(columns,field),'Field is not editable');
+  var originalEmail=norm_(p.email),value=String(p.value===undefined?'':p.value).trim(),expected=String(p.expected===undefined?'':p.expected).trim();
+  assert_(originalEmail.endsWith('@bracu.ac.bd')&&validBracEmail_(originalEmail),'Invalid faculty identity');
+  assert_(value.length<=120&&!/[\r\n\u0000-\u001f]/.test(value)&&!/^\s*[=+\-@]/.test(value),'Invalid field value');
+  if(field==='email')assert_(value===norm_(value)&&validBracEmail_(value)&&value.endsWith('@bracu.ac.bd'),'University faculty email required');
+  if(field==='initial')assert_(/^[A-Z0-9]{2,10}$/.test(value),'Use 2–10 uppercase letters or digits for initial');
+  if(field==='designation')assert_(value.length>=2,'Designation cannot be empty');
+  var lock=LockService.getScriptLock();assert_(lock.tryLock(10000),'Faculty edit in progress; please retry');
+  try{
+    var book=SpreadsheetApp.openById(masterId_()),sheet=book.getSheetByName('Faculty Details');assert_(sheet,'Faculty Details tab missing');
+    var last=sheet.getLastRow(),rows=sheet.getRange(2,1,Math.max(1,last-1),6).getDisplayValues();
+    var matches=rows.map(function(r,i){return {row:i+2,values:r};}).filter(function(x){return norm_(x.values[5])===originalEmail;});
+    assert_(matches.length===1,'Faculty source email must identify exactly one row');
+    var target=matches[0],current=String(target.values[columns[field]-1]||'').trim();
+    assert_(field==='email'||field==='initial'?norm_(current)===norm_(expected):current===expected,'Faculty record changed since you opened it; refresh and retry');
+    if(field==='email')assert_(!rows.some(function(r,i){return i+2!==target.row&&norm_(r[5])===value;}),'Email already belongs to another faculty member');
+    if(field==='initial')assert_(!rows.some(function(r,i){return i+2!==target.row&&norm_(r[0])===norm_(value);}), 'Initial already belongs to another faculty member');
+    if(current===value)return {updated:false,field:field,value:value};
+    var audit=facultyAuditSheet_(); // Ensure the audit destination exists before changing university records.
+    var cell=sheet.getRange(target.row,columns[field]);cell.setNumberFormat('@').setValue(value);
+    try{audit.appendRow([new Date().toISOString(),editor,originalEmail,target.row,field,current,value]);}
+    catch(auditError){try{cell.setValue(current);}catch(rollbackError){throw new Error('Faculty audit failed and source rollback could not be confirmed; contact the administrator');}throw auditError;}
+    refreshFacultyDirectory_(true);
+    return {updated:true,field:field,value:value};
+  }finally{lock.releaseLock();}
 }
 function indexBook_() {
   var id = prop_('COMMENTS_INDEX_SHEET_ID');
@@ -195,34 +257,53 @@ function facultyContactsForGroup_(group,faculty) {
     {slot:'Co-supervisor 1',name:group.coSupervisor1},
     {slot:'Co-supervisor 2',name:group.coSupervisor2}
   ].map(function(item){
-    var matches=faculty.filter(function(f){return f.names.some(function(n){return norm_(n)===norm_(item.name)&&!!norm_(n);});});
-    var match=matches.length===1?matches[0]:null;
-    return {slot:item.slot,name:item.name||'',email:match?match.email:'',room:match?match.room:'',designation:match?match.designation:''};
+    var match=verifiedFaculty_(item.name,faculty);
+    return {slot:item.slot,name:match?match.names[0]:(item.name||''),email:match?match.email:'',room:match?match.room:'',designation:match?match.designation:''};
   });
 }
 function studentDashboard_(email, studentRows, groupRows) {
-  var student = studentRows.filter(function(s){return s.email === email || s.aliases.indexOf(email) >= 0;})[0];
-  assert_(student, 'Student record not matched to the signed-in BRAC email');
-  var group = groupRows.filter(function(g){return g.id === student.thesisId;})[0]; assert_(group, 'Group not found');
-  var peers=studentRows.filter(function(s){return s.thesisId===group.id;}).map(function(s){return {id:s.id,name:s.name};});
+  var matches=studentRows.filter(function(s){return s.email === email || s.aliases.indexOf(email) >= 0;});
+  assert_(matches.length===1, 'Student identity must match exactly one registered record');
+  var student=matches[0];
+  var matchingGroups=groupRows.filter(function(g){return g.id === student.thesisId;});assert_(matchingGroups.length===1,'Group must match exactly one master record');
+  var group=matchingGroups[0];
+  var peers=studentRows.filter(function(s){return s.thesisId===group.id;}).map(function(s){return {id:s.id,name:s.name,email:s.email};});
   var contacts=facultyContactsForGroup_(group,facultyDirectory_());
   return { student: {id:student.id,name:student.name,email:email,thesisId:student.thesisId}, group: {id:group.id,title:group.title,type:group.type,stage:group.stage,primarySupervisor:group.primarySupervisor,secondarySupervisor:group.secondarySupervisor,coSupervisor1:group.coSupervisor1,coSupervisor2:group.coSupervisor2,members:peers.map(function(s){return s.id;})},members:peers,facultyContacts:contacts,evaluations:phaseEvaluations_(student,group,marks_()[student.id]||{p1:null,p2:null,defense:null},comments_()) };
 }
 function supervisorDashboard_(email, studentRows, groupRows) {
   var authorized = facultyGroups_(email,groupRows); var ids = authorized.map(function(g){return g.id;}),allMarks=marks_();
   var faculty=facultyDirectory_();
-  return { supervisorEmail:email,students:studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;}).map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized.map(function(g){return Object.assign({},g,{facultyContacts:facultyContactsForGroup_(g,faculty)});}) };
+  return { supervisorEmail:email,students:studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;}).map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized.map(function(g){return Object.assign({},g,{myRoles:groupAssignmentRoles_(email,g,faculty),facultyContacts:facultyContactsForGroup_(g,faculty)});}) };
 }
-function adminSearch_(q, stage, type, studentRows, groupRows) {
+function suggestAcademic_(q,studentRows,groupRows) {
+  q=norm_(q);assert_(q.length<=100,'Search text too long');
+  if(q.length<2)return {items:[]};
+  var results=[],seen={};
+  function rank(fields){var best=99;fields.forEach(function(field){var lower=norm_(field),faculty=facultyKey_(field);[lower,faculty].forEach(function(s){if(!s)return;if(s===q)best=Math.min(best,0);else if(s.indexOf(q)===0)best=Math.min(best,1);else if(s.split(' ').some(function(word){return word.indexOf(q)===0;}))best=Math.min(best,2);else if(s.indexOf(q)>=0)best=Math.min(best,3);});});return best;}
+  function add(kind,id,label,detail,fields){var score=rank(fields);if(score>3||seen[kind+':'+id])return;seen[kind+':'+id]=true;results.push({kind:kind,id:String(id),label:String(label||id),detail:String(detail||''),score:score});}
+  studentRows.forEach(function(s){add('student',s.id,s.name||s.id,'Student ID '+s.id+(s.thesisId?' · '+s.thesisId:''),[s.id,s.name,s.email]);});
+  groupRows.forEach(function(g){add('group',g.id,g.id,'Research group · '+(g.title||'Title not listed'),[g.id,g.title]);});
+  facultyDirectory_().forEach(function(f){add('faculty',f.email,f.names[0]||f.email,'Faculty · '+(f.initial||f.email),[f.email,f.initial].concat(f.names||[]));});
+  var order={student:0,faculty:1,group:2};
+  results.sort(function(a,b){return a.score-b.score||order[a.kind]-order[b.kind]||a.label.localeCompare(b.label);});
+  return {items:results.slice(0,12).map(function(r){return {kind:r.kind,id:r.id,label:r.label,detail:r.detail};})};
+}
+function adminSearch_(q, stage, type, studentRows, groupRows, requestedOffset, facultyEmail) {
   q = norm_(q); assert_(q.length <= 120,'Search text too long');
+  var offset=Math.max(0,Number(requestedOffset)||0);assert_(Number.isInteger(offset)&&offset<=100000,'Invalid search offset');
   var map = {},directory=facultyDirectory_(); groupRows.forEach(function(g){map[g.id]=g;});
-  return studentRows.filter(function(s){
+  var onlyFaculty=norm_(facultyEmail),facultyIds=null;
+  if(onlyFaculty){assert_(directory.some(function(f){return f.email===onlyFaculty;}),'Faculty selection not verified');facultyIds={};facultyGroups_(onlyFaculty,groupRows).forEach(function(g){facultyIds[g.id]=true;});}
+  var matches=studentRows.filter(function(s){
     var g=map[s.thesisId];if(!g) return false;
+    if(facultyIds&&!facultyIds[g.id])return false;
     if(stage && stage!=='All stages' && g.stage!==stage)return false;
     if(type && type!=='All types' && g.type!==type)return false;
     if(!q)return true;
     return [s.id,s.name,s.email,g.id,g.title,g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].some(function(v){return norm_(v).indexOf(q)>=0;}) || directory.some(function(f){return norm_(f.initial)===q && (f.names||[]).map(norm_).some(function(name){return [g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].map(norm_).indexOf(name)>=0;});});
-  }).slice(0,100).map(function(s){return {student:{id:s.id,name:s.name,email:s.email,thesisId:s.thesisId},group:map[s.thesisId]};});
+  });
+  return {rows:matches.slice(offset,offset+100).map(function(s){return {student:{id:s.id,name:s.name,email:s.email,thesisId:s.thesisId},group:map[s.thesisId]};}),total:matches.length,offset:offset};
 }
 function adminDetail_(studentId, studentRows, groupRows) {
   var s=studentRows.filter(function(x){return x.id===String(studentId);})[0]; assert_(s,'Student ID not found');
@@ -292,7 +373,15 @@ function overview_(studentRows,groupRows) {
   var phaseCounts={P1:0,P2:0,Defense:0};
   studentRows.forEach(function(s){var m=allMarks[s.id]||{};if(m.p1!==null&&m.p1!==undefined)phaseCounts.P1++;if(m.p2!==null&&m.p2!==undefined)phaseCounts.P2++;if(m.defense!==null&&m.defense!==undefined)phaseCounts.Defense++;});
   var lastSync='';indexed.forEach(function(r){if(r.syncedAt&&r.syncedAt>lastSync)lastSync=r.syncedAt;});
-  return {students:studentRows.length,groups:groupRows.length,recorded:phaseCounts,
+  var groupIndex={},stageGroups={P1:0,P2:0,Defense:0,Completed:0,Other:0},stageStudents={P1:0,P2:0,Defense:0,Completed:0,Other:0},types={Thesis:0,Project:0,Internship:0,Other:0};
+  groupRows.forEach(function(g){if(groupIndex[g.id])return;groupIndex[g.id]=g;stageGroups[stageBucket_(g.stage)]++;var kind=String(g.type||'').trim();types[types.hasOwnProperty(kind)?kind:'Other']++;});
+  var unmatched=0,studentIds={};studentRows.forEach(function(s){if(studentIds[s.id])return;studentIds[s.id]=true;var g=groupIndex[s.thesisId];if(!g){unmatched++;return;}stageStudents[stageBucket_(g.stage)]++;});
+  var rawStudents=rows_(masterId_(),'All student info',5).slice(1).filter(function(r){return r.some(function(v){return !!String(v||'').trim();});});
+  var rawGroups=rows_(masterId_(),'Group info',9).slice(1).filter(function(r){return r.some(function(v){return !!String(v||'').trim();});});
+  return {students:Object.keys(studentIds).length,groups:Object.keys(groupIndex).length,recorded:phaseCounts,
+    diagnostics:{sourceStudents:rawStudents.length,sourceGroups:rawGroups.length,validStudents:Object.keys(studentIds).length,validGroups:Object.keys(groupIndex).filter(function(id){return isValidGroupId_(id);}).length,
+      invalidStudentIds:rawStudents.filter(function(r){return !isValidStudentId_(r[1]);}).length,
+      invalidGroupIds:groupRows.filter(function(g){return !isValidGroupId_(g.id);}).length,unmatchedStudents:unmatched,stageGroups:stageGroups,stageStudents:stageStudents,types:types},
     semesters:summary_(studentRows,allMarks,indexed,released),lastSyncedAt:lastSync,
     sourceStatus:sources.map(function(s){return {semester:s.semester,phases:['P1','P2','Defense'].map(function(p){return {phase:p,published:!!released[s.semester+'|'+p],indexed:indexed.some(function(r){return r.semester===s.semester&&r.phase===p;})};})};})};
 }
@@ -438,10 +527,11 @@ function request_(body) {
     if(action==='saveAnnouncement')return saveAnnouncement_(p,email);
     return statusAnnouncement_(p);
   }
+  try{refreshFacultyDirectory_(false);}catch(_){/* Retain last verified snapshot if the source is temporarily unavailable. */}
   var studentRows=students_(),groupRows=groups_(),role=role_(email,studentRows);
   if(!role&&email.endsWith('@bracu.ac.bd')) {
     var refreshed=Date.parse(prop_('FACULTY_AUTO_UPDATED',''))||0;
-    if(Date.now()-refreshed>6*60*60*1000){try{refreshFacultyDirectory_(false);role=role_(email,studentRows);}catch(_){/* Refuse unknown users if the directory is unavailable. */}}
+    if(Date.now()-refreshed>5*60*1000){try{refreshFacultyDirectory_(false);role=role_(email,studentRows);}catch(_){/* Refuse unknown users if the directory is unavailable. */}}
   }
   assert_(role,'Account is not authorized');
   if(action==='session')return {role:role,email:email,name:principal.name||email};
@@ -460,7 +550,8 @@ function request_(body) {
     }
     return {entries:deadlines};
   }
-  if(action==='search'){permission_(role,['admin','prime_admin']);return {rows:adminSearch_(p.q,p.stage,p.type,studentRows,groupRows)};}
+  if(action==='suggest'){permission_(role,['prime_admin']);return suggestAcademic_(p.q,studentRows,groupRows);}
+  if(action==='search'){permission_(role,['admin','prime_admin']);return adminSearch_(p.q,p.stage,p.type,studentRows,groupRows,p.offset,p.facultyEmail);}
   if(action==='detail'){permission_(role,['admin','prime_admin']);return adminDetail_(p.studentId,studentRows,groupRows);}
   if(action==='summary'){permission_(role,['admin','prime_admin']);return {semesters:summary_(studentRows)};}
   if(action==='overview'){permission_(role,['admin','prime_admin']);return overview_(studentRows,groupRows);}
@@ -509,6 +600,9 @@ function request_(body) {
     try{refreshFacultyDirectory_(false);}catch(err){warning='Automatic faculty refresh unavailable; showing the last verified directory.';}
     var listing=facultyList_(groupRows);
     return {faculty:listing,updatedAt:prop_('FACULTY_AUTO_UPDATED',''),warning:warning,matched:listing.filter(function(f){return !!f.email;}).length,missing:listing.filter(function(f){return !f.email;}).length};
+  }
+  if(action==='updateFaculty'){
+    permission_(role,['prime_admin']);return updateFacultyField_(p,email);
   }
   if(action==='setFaculty'){
     permission_(role,['prime_admin']);var facEmail=norm_(p.email),name=String(p.name||'').trim(),initial=String(p.initial||'').trim().toUpperCase();

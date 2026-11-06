@@ -47,6 +47,34 @@ test('accepts a correctly signed university identity and forwards only trusted p
   assert.equal(response.status,200);
   assert.deepEqual((await response.json()).data,{role:'student',email:'student@g.bracu.ac.bd'});
 });
+test('secure HttpOnly session restores identity after refresh and is cleared on sign-out',async()=>{
+  const signed=await sign();
+  const login=await portalWorker.fetch(request(signed,env.APP_ORIGIN,'login'),env);
+  assert.equal(login.status,200);
+  const setCookie=login.headers.get('set-cookie');
+  assert.match(setCookie,/HttpOnly; Secure; SameSite=Strict/);
+  const cookie=setCookie.split(';')[0];
+  const restored=await portalWorker.fetch(new Request('https://api.example.net/v1/session',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie,'content-type':'application/json'},body:'{}'}),env);
+  assert.equal(restored.status,200);
+  assert.equal((await restored.json()).data.email,'student@g.bracu.ac.bd');
+  const logout=await portalWorker.fetch(new Request('https://api.example.net/v1/logout',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie},body:'{}'}),env);
+  assert.equal(logout.status,200);
+  assert.match(logout.headers.get('set-cookie'),/Max-Age=0/);
+  const tampered=cookie.replace(/.$/,'a');
+  assert.equal((await portalWorker.fetch(new Request('https://api.example.net/v1/student',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie:tampered},body:'{}'}),env)).status,401);
+  assert.equal((await portalWorker.fetch(new Request('https://api.example.net/v1/login',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie},body:'{}'}),env)).status,401);
+});
+test('rejects expired, malformed and re-signed sessions without Google reauthentication',async()=>{
+  const now=Math.floor(Date.now()/1000);
+  const old={v:1,sub:'109876543210',email:'student@g.bracu.ac.bd',name:'Student',iat:now-9000,exp:now-60};
+  const data=Buffer.from(JSON.stringify(old)).toString('base64url');
+  const key=await crypto.subtle.importKey('raw',utf8.encode(env.BRIDGE_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const mac=await crypto.subtle.sign('HMAC',key,utf8.encode('BRACU_SESSION_V1.'+data));
+  const expiredCookie=`bracu_portal_session=${data}.${Buffer.from(mac).toString('base64url')}`;
+  const verify=async(cookie)=>portalWorker.fetch(new Request('https://api.example.net/v1/session',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie},body:'{}'}),env);
+  assert.equal((await verify(expiredCookie)).status,401);
+  assert.equal((await verify('bracu_portal_session=bad%%%..cookie')).status,401);
+});
 test('rejects signed tokens for the wrong audience',async()=>{
   await assert.rejects(verifyGoogleToken(await sign(payload({aud:'another-client'})),env),/Wrong identity/);
 });

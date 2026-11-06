@@ -8,7 +8,7 @@ This folder contains the server-side implementation for Google Workspace sign-in
 2. **Cloudflare Pages Function** (`../functions/v1/[action].js`, using `api/handler.mjs`): verifies Google's RSA signature and the token's issuer, audience, expiry, verified email, and Workspace hosted domain. Only a verified email/sub is passed onward. The API has the same origin as the frontend.
 3. **Google Apps Script** (`apps-script/Code.gs`): reads the master and deadline Google Sheets using its owner's existing access. Every authenticated action checks the verified email against a trusted server-side role. Faculty identities are sourced from the master's `Faculty Details` tab (A:F). It also maintains a **private, separate** indexed copy of semester evaluation comments and a separate public-announcement store.
 
-No source Sheet is modified by this code. Only the separately created comments index and announcements spreadsheet are written.
+Most source Sheets remain read-only. The requested Prime Admin faculty inline-edit feature now changes only explicitly selected cells in the master `Faculty Details` tab, with server-side validation, conflict checks and a separate private audit log. Evaluation synchronization still writes only its private comment index.
 
 ## 1. Set up university Google OAuth
 
@@ -44,19 +44,22 @@ Set the following variables in the Pages **Production** environment:
 
 - Plain text `VITE_PORTAL_MODE=live`
 - Plain text `VITE_GOOGLE_CLIENT_ID=<your public OAuth Web Client ID>`
+- Plain text `GOOGLE_CLIENT_ID=<same public OAuth Web Client ID>` for the Pages Function
+- Plain text `APP_ORIGIN=<exact production https origin>` for same-origin request protection
 - Plain text `GOOGLE_HOSTED_DOMAINS=bracu.ac.bd,g.bracu.ac.bd` (verify actual hosted domains)
 - **Encrypted secret** `APPS_SCRIPT_URL=<your deployed /exec URL>`
 - **Encrypted secret** `BRIDGE_SECRET=<the same value used by Apps Script>`
+- Optional independent encrypted `SESSION_SIGNING_SECRET=<at least 32 random characters>`
 
 Do not place `BRIDGE_SECRET` in source files, GitHub, build logs or any `VITE_` variable. Trigger a fresh production deployment after setting the variables. The complete Windows/GitHub procedure is in [`../docs/DEPLOY_PAGES_GITHUB.md`](../docs/DEPLOY_PAGES_GITHUB.md).
 
 ## 5. Initial academic configuration
 
 1. Sign in as `partha.bhoumik@bracu.ac.bd`. This account is the **only hard-coded Prime Administrator**; no API route can create another prime administrator.
-2. Under **Administrators**, add regular admin emails. The new **Faculty List** automatically sources initials, names, designations, status, room and email from `Thesis Master` → `Faculty Details`. Run `installFacultyDirectorySync` once as the Apps Script owner to install its six-hour refresh trigger. The page also refreshes a stale snapshot when opened.
+2. Under **Administrators**, add regular admin emails. **Faculty List** reads the official `Faculty Details` directory; Prime Admin can edit initials, designation, room and email by double-clicking with optimistic conflict checks. Run `installFacultyDirectorySync` once as the Apps Script owner to install its hourly refresh trigger. Requests refresh a stale snapshot after five minutes. Faculty edits are logged in a separate private audit spreadsheet.
    Use **News & Events** to create public landing-page notices. This automatically creates private announcement storage the first time a notice is saved; no extra spreadsheet setup or Cloudflare variable is needed. See [`../docs/NEWS_AND_EVENTS.md`](../docs/NEWS_AND_EVENTS.md). When upgrading an existing portal, redeploy a new version of this Apps Script before publishing the new GitHub build.
 3. Under **Semester Sources**, register each semester's panel-manager Spreadsheet ID. Historical IDs remain in the registry, and the API prevents an existing semester's source from being overwritten.
-4. For each semester and phase, use **Sync / continue** until the API reports `complete: true`. Apps Script processes up to 8 evaluator workbooks per invocation to fit its execution limits.
+4. For each semester and phase, use **Sync all batches**; the interface automatically repeats calls until complete, interrupted or errored. Apps Script processes up to 8 evaluator workbooks per invocation to fit its execution limits.
 5. If one or more judge Sheets are inaccessible, grant the Apps Script owner access and select **Restart sync** before retrying. Incomplete/failed staged snapshots never replace the last complete index.
 6. Review and fix blank individual marks or comments in judge Sheets. Then sync again and **Publish** each semester/phase. The backend blocks publication when an indexed evaluator row lacks a mark or mandatory comment. Every completed re-sync unpublishes that phase pending review; individual student scores stay hidden until there is valid feedback and master marks are present.
 7. Repeat registration/synchronization each semester. A student can have P1 in Spring 2025, P2 in Summer 2026 and defense in Fall 2026, each from its original source.

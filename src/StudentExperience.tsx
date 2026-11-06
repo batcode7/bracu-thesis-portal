@@ -1,29 +1,16 @@
 import { useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, MapPin, ShieldCheck, Users, X } from 'lucide-react';
+import { Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, MapPin, X } from 'lucide-react';
 import type { Evaluation } from './data';
 import type { StudentDashboard } from './portal-api';
 
 type StudentPage = 'dashboard' | 'evaluations';
 type StudentDestination = 'evaluations' | 'deadlines' | 'resources';
-const phases = [
-  { key: 'P1', title: 'Pre-Thesis 1', short: 'P1' },
-  { key: 'P2', title: 'Pre-Thesis 2', short: 'P2' },
-  { key: 'Defense', title: 'Final Thesis', short: 'Final' },
-] as const;
-
 export function studentPhase(stage: string): 'P1' | 'P2' | 'Defense' | null {
   const value = stage.trim().toLowerCase();
   if (/pre[\s-]*thesis[\s-]*1|^p1\b/.test(value)) return 'P1';
   if (/pre[\s-]*thesis[\s-]*2|^p2\b/.test(value)) return 'P2';
   if (value.includes('final') || value.includes('defense')) return 'Defense';
   return null;
-}
-
-function shortStatus(stage: string, index: number) {
-  if (/deferred/i.test(stage)) return 'On hold';
-  if (/completed/i.test(stage)) return 'Past stage';
-  const active = phases.findIndex(phase => phase.key === studentPhase(stage));
-  return active < 0 ? 'Not specified' : index < active ? 'Previous stage' : index === active ? 'Current stage' : 'Upcoming';
 }
 
 function CopyStudentId({ value }: { value: string }) {
@@ -34,7 +21,7 @@ function CopyStudentId({ value }: { value: string }) {
   }} aria-label="Copy thesis ID">{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}{copied ? 'Copied' : 'Copy ID'}</button>;
 }
 
-function StudentOverview({ data, onNavigate }: { data: StudentDashboard; onNavigate: (destination: StudentDestination) => void }) {
+function StudentOverview({ data }: { data: StudentDashboard }) {
   const { student, group } = data;
   const contacts = data.facultyContacts || [
     { slot: 'Supervisor 1', name: group.primarySupervisor, email: '', room: '', designation: '' },
@@ -43,8 +30,7 @@ function StudentOverview({ data, onNavigate }: { data: StudentDashboard; onNavig
     { slot: 'Co-supervisor 2', name: group.coSupervisor2 || '', email: '', room: '', designation: '' },
   ];
   const assigned = contacts.filter(contact => contact.name);
-  const members = data.members || group.members.map(id => ({ id, name: id === student.id ? student.name : '' }));
-  const currentPhase = studentPhase(group.stage);
+  const members = data.members || group.members.map(id => ({ id, name: id === student.id ? student.name : '', email: '' }));
   return <div className="student-stack">
     <section className="student-hero card">
       <div className="student-hero-top"><div><span className="eyebrow">MY THESIS WORKSPACE</span><p>Welcome back, {student.name.split(' ')[0]}.</p></div><span className="student-stage-badge"><GraduationCap size={14} /> {group.stage}</span></div>
@@ -53,22 +39,11 @@ function StudentOverview({ data, onNavigate }: { data: StudentDashboard; onNavig
       <div className="student-hero-details"><div><small>Student ID</small><b>{student.id}</b></div><div><small>Research category</small><b>{group.type}</b></div><div><small>Group members</small><b>{members.length}</b></div></div>
     </section>
 
-    <section className="card student-stage-panel"><div className="student-section-head"><div><span className="eyebrow">ACADEMIC PROGRESS</span><h3>Your current stage</h3></div><span className="student-section-caption">From your registered thesis group</span></div>
-      <div className="student-phase-track">{phases.map((phase, index) => {
-        const status = shortStatus(group.stage, index);
-        return <div className={`student-phase ${status === 'Current stage' ? 'active' : ''}`} key={phase.key}><span className="student-phase-step">{String(index + 1).padStart(2, '0')}</span><div><b>{phase.title}</b><small>{status}</small></div>{status === 'Current stage' && <span className="student-current-dot" />}</div>;
-      })}</div>
-      {!currentPhase && <p className="student-stage-note">{group.stage === 'Completed' ? 'Your group is marked completed.' : group.stage === 'Deferred' ? 'Your group is currently deferred.' : 'No active thesis phase is available.'} Dates and results are tracked separately.</p>}
-      <p className="student-stage-note">Stage labels describe group progression; evaluation marks appear only after official publication.</p>
-      <div className="student-quick-actions"><button type="button" onClick={() => onNavigate('evaluations')}><ShieldCheck size={17} /> My evaluations <ArrowRight size={16} /></button><button type="button" onClick={() => onNavigate('deadlines')}><CalendarDays size={17} /> Stage deadlines <ArrowRight size={16} /></button><button type="button" onClick={() => onNavigate('resources')}><BookOpen size={17} /> Resources <ArrowRight size={16} /></button></div>
+    <section className="student-section"><div className="student-section-head"><div><span className="eyebrow">RESEARCH GROUP</span><h3>Group members</h3></div><span className="student-section-caption">{members.length} {members.length === 1 ? 'member' : 'members'}</span></div>
+      <div className="card student-members"><div className="tableoverflow"><table className="student-member-table"><thead><tr><th>Student name</th><th>Student ID</th><th>Email</th></tr></thead><tbody>{members.map(member=><tr key={member.id}><td><strong>{member.name||'Group member'}</strong>{member.id===student.id&&<span className="student-you">You</span>}</td><td>{member.id}</td><td>{member.email||'Not listed'}</td></tr>)}</tbody></table></div></div>
     </section>
-
     <section className="student-section"><div className="student-section-head"><div><span className="eyebrow">ACADEMIC GUIDANCE</span><h3>Your supervision team</h3></div><span className="student-section-caption">Official faculty directory when available</span></div>
       {assigned.length ? <div className="student-faculty-grid">{assigned.map(contact => <article key={contact.slot} className="card student-faculty-card"><span className="student-contact-role">{contact.slot}</span><h4>{contact.name}</h4>{contact.designation && <p>{contact.designation}</p>}<div className="student-contact-details">{contact.email && <a href={`mailto:${contact.email}`}><Mail size={15} /> {contact.email}</a>}{contact.room && <span><MapPin size={15} /> Room {contact.room}</span>}{!contact.email && !contact.room && <span>Contact details not listed in the faculty directory</span>}</div></article>)}</div> : <div className="card student-empty-card">No faculty assignment is recorded for this group.</div>}
-    </section>
-
-    <section className="student-section"><div className="student-section-head"><div><span className="eyebrow">RESEARCH GROUP</span><h3>Group members</h3></div><span className="student-section-caption">{members.length} {members.length === 1 ? 'member' : 'members'}</span></div>
-      <div className="card student-members">{members.map(member => <div key={member.id}><span className="student-member-icon"><Users size={17} /></span><div><strong>{member.name || 'Group member'}</strong><small>{member.id}</small></div>{member.id === student.id && <span className="student-you">You</span>}</div>)}</div>
     </section>
   </div>;
 }
@@ -89,5 +64,6 @@ function StudentEvaluations({ evaluations }: { evaluations: Evaluation[] }) {
 }
 
 export default function StudentExperience({ data, page, onNavigate }: { data: StudentDashboard; page: StudentPage; onNavigate: (destination: StudentDestination) => void }) {
-  return page === 'evaluations' ? <StudentEvaluations evaluations={data.evaluations} /> : <StudentOverview data={data} onNavigate={onNavigate} />;
+  void onNavigate;
+  return page === 'evaluations' ? <StudentEvaluations evaluations={data.evaluations} /> : <StudentOverview data={data} />;
 }

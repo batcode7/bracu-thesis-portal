@@ -19,6 +19,8 @@ The compiled site is in `dist/`.
 
 To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`docs/DEPLOY_PAGES_GITHUB.md`](docs/DEPLOY_PAGES_GITHUB.md)**. The same Pages project serves the React frontend and authenticated `/v1/*` Pages Functions. Your existing Google Apps Script deployment remains the private data gateway. Keep the preview in `VITE_PORTAL_MODE=demo` until the backend, OAuth origins, and authorized Google identities have been tested. Detailed data integration is documented in [`backend/README.md`](backend/README.md).
 
+**Latest upgrade:** See [`docs/UPGRADE_V7.md`](docs/UPGRADE_V7.md) for verified code changes, source-sheet editing safeguards, the secure session-cookie migration, faculty name normalization, synchronization behavior, and exact deployment checks. This release requires deploying a new version of the existing Apps Script Web app before updating the live frontend.
+
 ## Current state
 
 - Google Workspace-first landing design; demo previews cannot impersonate a university login. Responsive student dashboard, evaluation cards, semester labels and faculty-comment dialogs.
