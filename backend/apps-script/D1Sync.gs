@@ -77,14 +77,29 @@ function d1Send_(url,secret,request) {
 function syncD1Now() {
   var lock=LockService.getScriptLock();if(!lock.tryLock(1000))return {skipped:true,reason:'Another synchronization is running'};
   try{
+    // Apps Script executions have a finite runtime. Stop deliberately before
+    // the limit, then resume this exact generation on the next scheduled run.
+    var startedAt=Date.now(),maxRuntimeMs=4*60*1000;
     var url=prop_('D1_SYNC_URL'),secret=prop_('D1_SYNC_SECRET');
     assert_(secret.length>=32,'Set D1_SYNC_SECRET in Script Properties');
     assert_(/^https:\/\/[a-z0-9.-]+\/internal\/d1-sync$/i.test(url),'D1_SYNC_URL must be a trusted HTTPS portal sync endpoint');
     var records=d1Snapshot_(),checksum=d1Hash_(JSON.stringify(records));
-    var generation=Utilities.getUuid().replace(/-/g,'');
+    var properties=scriptProps_();
+    var pendingGeneration=prop_('D1_PENDING_GENERATION');
+    var pendingChecksum=prop_('D1_PENDING_CHECKSUM');
+    var pendingCursor=Number(prop_('D1_PENDING_CURSOR')||0);
+    var resuming=pendingChecksum===checksum&&/^[a-zA-Z0-9_-]{16,100}$/.test(pendingGeneration)&&
+      Number.isInteger(pendingCursor)&&pendingCursor>=0&&pendingCursor<=records.length;
+    var generation=resuming?pendingGeneration:Utilities.getUuid().replace(/-/g,'');
+    var cursor=resuming?pendingCursor:0;
+    // Save the manifest before sending anything: an interrupted Apps Script
+    // invocation can pick up without allocating another generation.
+    properties.setProperty('D1_PENDING_GENERATION',generation);
+    properties.setProperty('D1_PENDING_CHECKSUM',checksum);
+    properties.setProperty('D1_PENDING_CURSOR',String(cursor));
     var start=d1Send_(url,secret,{mode:'start',generation:generation,checksum:checksum,expectedCount:records.length});
     if(!start.skip){
-      for(var i=0;i<records.length;){
+      for(var i=cursor;i<records.length;){
         var chunk=[],bytes=0;
         while(i<records.length&&chunk.length<50){
           var estimated=JSON.stringify(records[i]).length+2;
@@ -92,11 +107,20 @@ function syncD1Now() {
           chunk.push(records[i++]);bytes+=estimated;
         }
         d1Send_(url,secret,{mode:'batch',generation:generation,records:chunk});
+        properties.setProperty('D1_PENDING_CURSOR',String(i));
+        if(i<records.length&&Date.now()-startedAt>=maxRuntimeMs){
+          Logger.log('D1 sync checkpoint: '+i+'/'+records.length+' records; next trigger resumes generation '+generation);
+          return {synced:false,pending:true,imported:i,count:records.length,generation:generation};
+        }
       }
       d1Send_(url,secret,{mode:'commit',generation:generation});
     }
-    scriptProps_().setProperty('D1_LAST_CHECKSUM',checksum);
-    scriptProps_().setProperty('D1_LAST_SYNC_AT',new Date().toISOString());
+    properties.deleteProperty('D1_PENDING_GENERATION');
+    properties.deleteProperty('D1_PENDING_CHECKSUM');
+    properties.deleteProperty('D1_PENDING_CURSOR');
+    properties.setProperty('D1_LAST_CHECKSUM',checksum);
+    properties.setProperty('D1_LAST_SYNC_AT',new Date().toISOString());
+    Logger.log('D1 synchronization complete: '+records.length+' records; changed='+!start.skip);
     return {synced:true,count:records.length,changed:!start.skip};
   }finally{lock.releaseLock();}
 }
