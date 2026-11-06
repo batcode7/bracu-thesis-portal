@@ -12,6 +12,7 @@ export interface Student {
 export interface ThesisGroup {
   id: string;
   title: string;
+  abstract?: string;
   type: 'Thesis' | 'Project' | 'Internship';
   stage: GroupStage;
   primarySupervisor: string;
@@ -82,9 +83,7 @@ export const semesterSources: SemesterSource[] = [
 export const PHASE_NAMES: Record<Phase, string> = { P1: 'Pre-Thesis 1', P2: 'Pre-Thesis 2', Defense: 'Final Defense', Supervisor: 'Supervisor Evaluation' };
 
 export function visibleEvaluation(item: Evaluation): Evaluation {
-  // Fail closed: a published mark without a nonblank faculty comment is not shown.
-  if (item.publication !== 'published' || !item.comment?.trim()) {
-    return { ...item, publication: 'pending', score: null, comment: null };
-  }
+  // Academic marks and indexed comments are independent fields. A verified
+  // student can see either as soon as that field exists in their own record.
   return item;
 }

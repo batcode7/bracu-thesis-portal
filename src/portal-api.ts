@@ -9,8 +9,8 @@ export interface StudentDashboard {
 }
 export interface SupervisorDashboard {
   supervisorEmail: string;
-  students: Array<Student & { progress?: { p1: boolean; p2: boolean; defense: boolean } }>;
-  groups: Array<ThesisGroup & {myRoles?:Array<'Supervisor'|'Co-Supervisor'>;facultyContacts?:Array<{slot:string;name:string;email:string;room:string;designation:string}>}>;
+  students: Array<Student & { progress?: { p1: boolean; p2: boolean; defense: boolean }; marks?:{p1:number|null;p2:number|null;defense:number|null;supervisor:number|null} }>;
+  groups: Array<ThesisGroup & {myRoles?:Array<'Supervisor'|'Co-Supervisor'>;facultyContacts?:Array<{slot:string;name:string;email:string;room:string;designation:string}>;feedback?:Array<{phase:'P1'|'P2'|'Defense';semester:string;evaluator:string;comment:string;students:string[]}>}>;
 }
 export interface PortalApi {
   studentDashboard(): Promise<StudentDashboard>;

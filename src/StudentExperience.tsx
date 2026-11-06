@@ -18,7 +18,7 @@ function CopyStudentId({ value }: { value: string }) {
   return <button className="student-copy" type="button" onClick={async () => {
     try { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
     catch { setCopied(false); }
-  }} aria-label="Copy thesis ID">{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}{copied ? 'Copied' : 'Copy ID'}</button>;
+  }} aria-label="Copy research group ID">{copied ? <Check size={15} /> : <ClipboardCopy size={15} />}{copied ? 'Copied' : 'Copy ID'}</button>;
 }
 
 function StudentOverview({ data }: { data: StudentDashboard }) {
@@ -35,7 +35,7 @@ function StudentOverview({ data }: { data: StudentDashboard }) {
     <section className="student-hero card">
       <div className="student-hero-top"><div><span className="eyebrow">MY THESIS WORKSPACE</span><p>Welcome back, {student.name.split(' ')[0]}.</p></div><span className="student-stage-badge"><GraduationCap size={14} /> {group.stage}</span></div>
       <h2>{group.title || 'Thesis title not yet recorded'}</h2>
-      <div className="student-id-row"><div><span>Thesis / project ID</span><strong>{group.id}</strong></div><CopyStudentId value={group.id} /></div>
+      <div className="student-id-row"><div><span>{group.type} ID</span><strong>{group.id}</strong></div><CopyStudentId value={group.id} /></div>
       <div className="student-hero-details"><div><small>Student ID</small><b>{student.id}</b></div><div><small>Research category</small><b>{group.type}</b></div><div><small>Group members</small><b>{members.length}</b></div></div>
     </section>
 
@@ -51,14 +51,17 @@ function StudentOverview({ data }: { data: StudentDashboard }) {
 function StudentEvaluations({ evaluations }: { evaluations: Evaluation[] }) {
   const [selected, setSelected] = useState<Evaluation | null>(null);
   const sorted = [...evaluations].sort((a,b) => ['P1','P2','Defense','Supervisor'].indexOf(a.phase) - ['P1','P2','Defense','Supervisor'].indexOf(b.phase));
-  return <div className="student-stack"><section className="student-eval-intro"><span className="eyebrow">OFFICIAL FEEDBACK</span><h2>My evaluations</h2><p>Your individual marks and faculty comments appear here after they are formally released. Select any evaluation to inspect its details.</p></section>
+  return <div className="student-stack"><section className="student-eval-intro"><span className="eyebrow">OFFICIAL FEEDBACK</span><h2>My evaluations</h2><p>Available marks from the permanent master and recorded panel comments are shown independently. Select an evaluation to see its details.</p></section>
     <div className="student-evaluation-grid">{sorted.map(item => {
-      const published = item.publication === 'published' && !!item.comment?.trim() && item.score !== null;
+      const hasScore=item.score!==null;
+      const hasComment=!!item.comment?.trim();
       const title = item.phase === 'P1' ? 'Pre-Thesis 1' : item.phase === 'P2' ? 'Pre-Thesis 2' : item.phase === 'Defense' ? 'Final Defense' : 'Supervisor evaluation';
-      return <button type="button" className="card student-eval-card" key={item.id} onClick={() => setSelected(item)}><div className="student-eval-top"><span>{item.semester}</span><span className={`student-result-tag ${published ? 'released' : ''}`}>{published ? 'Released' : 'Not released'}</span></div><h3>{title}</h3><div className="student-eval-mark">{published ? <><strong>{item.score}</strong><span>/ {item.maxScore}</span></> : <strong>—</strong>}</div><div className="student-eval-bottom"><span>{published ? 'View marks and faculty comments' : 'Evaluation details'}</span><span>Details <ChevronRight size={16} /></span></div></button>;
+      return <button type="button" className="card student-eval-card" key={item.id} onClick={() => setSelected(item)}><div className="student-eval-top"><span>{item.semester}</span><span className={`student-result-tag ${hasScore||hasComment?'available':''}`}>{hasScore&&hasComment?'Marks & comments':hasScore?'Mark recorded':hasComment?'Comment recorded':'Not recorded'}</span></div><h3>{title}</h3><div className="student-eval-mark">{hasScore ? <><strong>{item.score}</strong><span>/ {item.maxScore}</span></> : <strong>—</strong>}</div><div className="student-eval-bottom"><span>{hasScore||hasComment?'View available evaluation details':'No evaluation data yet'}</span><span>Details <ChevronRight size={16} /></span></div></button>;
     })}</div>
     {selected && <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}><section className="modalbox student-eval-modal" role="dialog" aria-modal="true" aria-label="Evaluation details"><div className="modalheader"><div><span className="eyebrow">{selected.semester}</span><h2>{selected.phase === 'P1' ? 'Pre-Thesis 1' : selected.phase === 'P2' ? 'Pre-Thesis 2' : selected.phase === 'Defense' ? 'Final Defense' : 'Supervisor'} evaluation</h2></div><button className="iconbtn" type="button" aria-label="Close evaluation details" onClick={() => setSelected(null)}><X size={19} /></button></div>
-      {selected.publication === 'published' && !!selected.comment?.trim() && selected.score !== null ? <><div className="student-modal-score"><span>Released marks</span><strong>{selected.score} <small>/ {selected.maxScore}</small></strong></div>{selected.evaluator && <p className="student-modal-evaluator">Evaluated by {selected.evaluator}</p>}<h3>Faculty feedback</h3><blockquote className="live-feedback">{selected.comment}</blockquote></> : <div className="mutedbox">Marks and comments have not both been approved for release. Check back after the evaluation has been published.</div>}
+      {selected.score!==null&&<div className="student-modal-score"><span>Recorded mark</span><strong>{selected.score} <small>/ {selected.maxScore}</small></strong></div>}
+      {selected.comment?.trim()&&<>{selected.evaluator&&<p className="student-modal-evaluator">Evaluated by {selected.evaluator}</p>}<h3>Faculty feedback</h3><blockquote className="live-feedback">{selected.comment}</blockquote></>}
+      {selected.score===null&&!selected.comment?.trim()&&<div className="mutedbox">No mark or faculty comment is recorded for this evaluation yet.</div>}
     </section></div>}
   </div>;
 }

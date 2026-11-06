@@ -89,7 +89,7 @@ If you later add your own domain, add that domain as an authorized JavaScript or
 3. Open **Faculty List** and verify that official faculty names with or without `Mr.`, `Ms.`, etc. resolve to the same identity; use approved inline edits only when needed.
 4. Map any student's BRAC email to their 8-digit Student ID if their master-sheet row contains a personal email.
 5. Register semester manager IDs and choose **Sync all batches** for P1/P2/Defense until each is complete. Allow the Apps Script owner to open every evaluator workbook; inaccessible workbooks fail the sync.
-6. Review mandatory comments, then publish a phase. The backend blocks publication if synchronized evaluator records contain blank marks or comments.
+6. Review academic marks and feedback **before** syncing. The new portal intentionally has no academic Publish button: available master marks appear immediately, and successfully synchronized comments appear automatically for verified students and assigned supervisors. Confirm this policy is approved by the university before providing student access.
 7. Test accounts for a student, supervisor, admin and unauthorized Gmail user; confirm row-level data separation.
 
 ### What happens on later updates?

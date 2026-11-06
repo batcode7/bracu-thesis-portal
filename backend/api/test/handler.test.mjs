@@ -60,7 +60,11 @@ test('secure HttpOnly session restores identity after refresh and is cleared on 
   const logout=await portalWorker.fetch(new Request('https://api.example.net/v1/logout',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie},body:'{}'}),env);
   assert.equal(logout.status,200);
   assert.match(logout.headers.get('set-cookie'),/Max-Age=0/);
-  const tampered=cookie.replace(/.$/,'a');
+  // Change a significant signature byte; mutating the final base64url
+  // character can sometimes change only unused padding bits.
+  const [cookieName,cookieValue]=cookie.split('=');
+  const [payload,signature]=cookieValue.split('.');
+  const tampered=`${cookieName}=${payload}.${signature[0]==='a'?'b':'a'}${signature.slice(1)}`;
   assert.equal((await portalWorker.fetch(new Request('https://api.example.net/v1/student',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie:tampered},body:'{}'}),env)).status,401);
   assert.equal((await portalWorker.fetch(new Request('https://api.example.net/v1/login',{method:'POST',headers:{origin:env.APP_ORIGIN,cookie},body:'{}'}),env)).status,401);
 });

@@ -1,5 +1,7 @@
 # Thesis Portal v7 — changes and deployment
 
+**Historical release notes:** For the new v8 supervisor/abstract/deadline changes and the deliberate removal of academic mark-publication gating, follow [`UPGRADE_V8.md`](UPGRADE_V8.md). The v7 instructions about academic publication are superseded. Announcement publishing remains unchanged.
+
 This release updates the existing React/Vite → Cloudflare Pages Functions → Google Apps Script → Sheets architecture. No live deployment or master-sheet write was performed while building this archive.
 
 ## Implemented

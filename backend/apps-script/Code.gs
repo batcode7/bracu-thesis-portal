@@ -77,8 +77,9 @@ function students_() {
   });
 }
 function groups_() {
-  return rows_(masterId_(), 'Group info', 9).slice(1).filter(function(r){return !!groupId_(r[1]) && norm_(r[1])!=='thesis id';}).map(function(r){
-    return { id: groupId_(r[1]), type: r[2] || 'Thesis', stage: r[3] || 'Unknown', primarySupervisor: r[4] || '', secondarySupervisor: r[5] || '', coSupervisor1: r[6] || '', coSupervisor2: r[7] || '', title: r[8] || '' };
+  // Group info: I = research title, J = abstract (new, beside the title).
+  return rows_(masterId_(), 'Group info', 10).slice(1).filter(function(r){return !!groupId_(r[1]) && norm_(r[1])!=='thesis id';}).map(function(r){
+    return { id: groupId_(r[1]), type: r[2] || 'Thesis', stage: r[3] || 'Unknown', primarySupervisor: r[4] || '', secondarySupervisor: r[5] || '', coSupervisor1: r[6] || '', coSupervisor2: r[7] || '', title: r[8] || '', abstract: String(r[9] || '').trim() };
   });
 }
 function marks_() {
@@ -228,26 +229,27 @@ function indexBook_() {
 function comments_() {
   var id = prop_('COMMENTS_INDEX_SHEET_ID'); if (!id) return [];
   var sheet = SpreadsheetApp.openById(id).getSheetByName('Comments'); if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2,1,sheet.getLastRow()-1,COMMENT_HEADERS.length).getDisplayValues().map(function(r){return {semester:r[0],phase:r[1],thesisId:r[2],memberKey:norm_(r[3]),score:number_(r[4]),comment:String(r[5]||'').trim(),evaluator:r[6],sourceId:r[7],syncedAt:r[8]};});
+  return sheet.getRange(2,1,sheet.getLastRow()-1,COMMENT_HEADERS.length).getDisplayValues().map(function(r){return {semester:r[0],phase:r[1],thesisId:groupId_(r[2]),memberKey:norm_(r[3]),score:number_(r[4]),comment:String(r[5]||'').trim(),evaluator:r[6],sourceId:r[7],syncedAt:r[8]};});
 }
-function releases_() { return jsonProp_('RELEASED_PHASES_JSON', {}); }
 function phaseEvaluations_(student, group, studentMarks, comments) {
-  var released = releases_(); var result = [];
+  // A verified student sees their own official master mark and available indexed
+  // faculty feedback independently. No manual academic publication gate.
+  var result = [];
   ['P1','P2','Defense'].forEach(function(phase){
-    var matching = comments.filter(function(c){return c.phase === phase && c.thesisId === group.id && (c.memberKey === student.id || c.memberKey === student.email || student.aliases.indexOf(c.memberKey) >= 0);});
+    var matching = comments.filter(function(c){return c.phase === phase && groupId_(c.thesisId) === group.id && (c.memberKey === student.id || c.memberKey === student.email || student.aliases.indexOf(c.memberKey) >= 0);});
     var semesters = []; matching.forEach(function(c){if(semesters.indexOf(c.semester) < 0) semesters.push(c.semester);});
+    var score = phase === 'P1' ? studentMarks.p1 : phase === 'P2' ? studentMarks.p2 : studentMarks.defense;
+    if(score===undefined)score=null;
     semesters.forEach(function(semester){
       var phaseRows = matching.filter(function(c){return c.semester === semester;});
       var feedback = phaseRows.filter(function(c){return !!c.comment && c.comment !== '-';});
       var key = semester + '|' + phase;
-      var score = phase === 'P1' ? studentMarks.p1 : phase === 'P2' ? studentMarks.p2 : studentMarks.defense;
-      var completeFeedback = phaseRows.length > 0 && phaseRows.every(function(c){return c.score !== null && !!c.comment && c.comment !== '-';});
-      var published = !!released[key] && score !== null && score !== undefined && completeFeedback && feedback.length > 0;
-      result.push({id:student.id+'|'+key,studentId:student.id,phase:phase,semester:semester,score:published?score:null,maxScore:PHASE_INFO[phase].max,comment:published?feedback.map(function(f){return f.evaluator+': '+f.comment;}).join('\n\n'):null,evaluator:published?feedback.map(function(f){return f.evaluator;}).join(', '):'',publication:published?'published':'pending'});
+      result.push({id:student.id+'|'+key,studentId:student.id,phase:phase,semester:semester,score:score,maxScore:PHASE_INFO[phase].max,comment:feedback.length?feedback.map(function(f){return f.evaluator+': '+f.comment;}).join('\n\n'):null,evaluator:feedback.map(function(f){return f.evaluator;}).join(', '),publication:score!==null||feedback.length?'published':'pending'});
     });
-    if (!semesters.length) result.push({id:student.id+'|'+phase,studentId:student.id,phase:phase,semester:'Not recorded',score:null,maxScore:PHASE_INFO[phase].max,comment:null,evaluator:'',publication:'pending'});
+    if (!semesters.length) result.push({id:student.id+'|'+phase,studentId:student.id,phase:phase,semester:'No indexed feedback',score:score,maxScore:PHASE_INFO[phase].max,comment:null,evaluator:'',publication:score!==null?'published':'pending'});
   });
-  result.push({id:student.id+'|Supervisor',studentId:student.id,phase:'Supervisor',semester:'Not published',score:null,maxScore:55,comment:null,evaluator:'',publication:'pending'});
+  var supervisorScore=studentMarks.supervisor===undefined?null:studentMarks.supervisor;
+  result.push({id:student.id+'|Supervisor',studentId:student.id,phase:'Supervisor',semester:'Permanent master',score:supervisorScore,maxScore:55,comment:null,evaluator:'',publication:supervisorScore!==null?'published':'pending'});
   return result;
 }
 function facultyContactsForGroup_(group,faculty) {
@@ -272,9 +274,21 @@ function studentDashboard_(email, studentRows, groupRows) {
   return { student: {id:student.id,name:student.name,email:email,thesisId:student.thesisId}, group: {id:group.id,title:group.title,type:group.type,stage:group.stage,primarySupervisor:group.primarySupervisor,secondarySupervisor:group.secondarySupervisor,coSupervisor1:group.coSupervisor1,coSupervisor2:group.coSupervisor2,members:peers.map(function(s){return s.id;})},members:peers,facultyContacts:contacts,evaluations:phaseEvaluations_(student,group,marks_()[student.id]||{p1:null,p2:null,defense:null},comments_()) };
 }
 function supervisorDashboard_(email, studentRows, groupRows) {
-  var authorized = facultyGroups_(email,groupRows); var ids = authorized.map(function(g){return g.id;}),allMarks=marks_();
+  var authorized = facultyGroups_(email,groupRows); var ids = authorized.map(function(g){return g.id;}),allMarks=marks_(),indexed=comments_();
   var faculty=facultyDirectory_();
-  return { supervisorEmail:email,students:studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;}).map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized.map(function(g){return Object.assign({},g,{myRoles:groupAssignmentRoles_(email,g,faculty),facultyContacts:facultyContactsForGroup_(g,faculty)});}) };
+  var assigned=studentRows.filter(function(s){return ids.indexOf(s.thesisId)>=0;});
+  return { supervisorEmail:email,students:assigned.map(function(s){var m=allMarks[s.id]||{};return {id:s.id,name:s.name,email:s.email,thesisId:s.thesisId,marks:{p1:m.p1===undefined?null:m.p1,p2:m.p2===undefined?null:m.p2,defense:m.defense===undefined?null:m.defense,supervisor:m.supervisor===undefined?null:m.supervisor},progress:{p1:m.p1!==null&&m.p1!==undefined,p2:m.p2!==null&&m.p2!==undefined,defense:m.defense!==null&&m.defense!==undefined}};}),groups:authorized.map(function(g){
+    var feedback=[],seen={};
+    indexed.forEach(function(c){
+      if(groupId_(c.thesisId)!==g.id||['P1','P2','Defense'].indexOf(c.phase)<0||!c.comment||c.comment==='-')return;
+      var members=assigned.filter(function(s){return s.thesisId===g.id&&(s.id===c.memberKey||s.email===c.memberKey||s.aliases.indexOf(c.memberKey)>=0);});
+      if(!members.length)return; // Never show feedback for an unmatched student, even with a matching group ID.
+      var key=[c.phase,c.semester,c.evaluator,c.comment].join('\u0001'),item=seen[key];
+      if(!item){item={phase:c.phase,semester:c.semester,evaluator:c.evaluator||'Faculty evaluator',comment:c.comment,students:[]};seen[key]=item;feedback.push(item);}
+      members.forEach(function(s){if(item.students.indexOf(s.name+' ('+s.id+')')<0)item.students.push(s.name+' ('+s.id+')');});
+    });
+    return Object.assign({},g,{myRoles:groupAssignmentRoles_(email,g,faculty),facultyContacts:facultyContactsForGroup_(g,faculty),feedback:feedback});
+  }) };
 }
 function suggestAcademic_(q,studentRows,groupRows) {
   q=norm_(q);assert_(q.length<=100,'Search text too long');
@@ -334,29 +348,24 @@ function deadlineLinks_() {
     result.push({id:String(i+2),phase:stage_(lastStage),title:r[1],day:r[2],date:r[3],status:r[4]||'Reference',action:r[5]||r[2]||'View',url:link});
   });return result;
 }
-function activeDeadlinePhase_(stage) {
-  var value=norm_(stage);
-  if(/pre[\s-]*thesis[\s-]*1|^p1\b/.test(value))return 'P1';
-  if(/pre[\s-]*thesis[\s-]*2|^p2\b/.test(value))return 'P2';
-  if(/final|defense/.test(value))return 'Defense';
-  return '';
-}
-function summary_(studentRows,providedMarks,providedComments,providedReleases) {
-  var released=providedReleases||releases_(),rows=providedComments||comments_(),keyMap={},semesterMap={},byStudent={},lookups={},allMarks=providedMarks||marks_();
+function summary_(studentRows,providedMarks,providedComments) {
+  // Semester attribution comes from the synchronized evaluator index. The
+  // permanent master is authoritative for student marks; no publish switch.
+  var rows=providedComments||comments_(),keyMap={},semesterMap={},byStudent={},lookups={},allMarks=providedMarks||marks_();
   studentRows.forEach(function(s){
     [s.id,s.email].concat(s.aliases).forEach(function(member){if(member)lookups[s.thesisId+'|'+norm_(member)]=s.id;});
   });
   rows.forEach(function(c){
-    if(!released[c.semester+'|'+c.phase])return;
-    var id=lookups[c.thesisId+'|'+c.memberKey];if(!id)return;
+    if(['P1','P2','Defense'].indexOf(c.phase)<0)return;
+    var id=lookups[groupId_(c.thesisId)+'|'+c.memberKey];if(!id)return;
     var key=c.semester+'|'+c.phase+'|'+id;
-    if(!byStudent[key])byStudent[key]={studentId:id,thesisId:c.thesisId,semester:c.semester,phase:c.phase,complete:true};
-    if(!c.comment||c.comment==='-'||c.score===null)byStudent[key].complete=false;
+    if(!byStudent[key])byStudent[key]={studentId:id,thesisId:groupId_(c.thesisId),semester:c.semester,phase:c.phase,hasFeedback:false};
+    if(c.comment&&c.comment!=='-')byStudent[key].hasFeedback=true;
   });
   Object.keys(byStudent).forEach(function(key){
     var record=byStudent[key],m=allMarks[record.studentId]||{};
     var official=record.phase==='P1'?m.p1:record.phase==='P2'?m.p2:m.defense;
-    if(!record.complete||official===null||official===undefined)return;
+    if((official===null||official===undefined)&&!record.hasFeedback)return;
     var phaseKey=record.semester+'|'+record.phase;
     if(!keyMap[phaseKey])keyMap[phaseKey]={students:{},groups:{}};
     if(!semesterMap[record.semester])semesterMap[record.semester]={students:{},groups:{}};
@@ -369,7 +378,7 @@ function summary_(studentRows,providedMarks,providedComments,providedReleases) {
   });
 }
 function overview_(studentRows,groupRows) {
-  var allMarks=marks_(),indexed=comments_(),released=releases_(),sources=sourceRegistry_();
+  var allMarks=marks_(),indexed=comments_(),sources=sourceRegistry_();
   var phaseCounts={P1:0,P2:0,Defense:0};
   studentRows.forEach(function(s){var m=allMarks[s.id]||{};if(m.p1!==null&&m.p1!==undefined)phaseCounts.P1++;if(m.p2!==null&&m.p2!==undefined)phaseCounts.P2++;if(m.defense!==null&&m.defense!==undefined)phaseCounts.Defense++;});
   var lastSync='';indexed.forEach(function(r){if(r.syncedAt&&r.syncedAt>lastSync)lastSync=r.syncedAt;});
@@ -382,8 +391,8 @@ function overview_(studentRows,groupRows) {
     diagnostics:{sourceStudents:rawStudents.length,sourceGroups:rawGroups.length,validStudents:Object.keys(studentIds).length,validGroups:Object.keys(groupIndex).filter(function(id){return isValidGroupId_(id);}).length,
       invalidStudentIds:rawStudents.filter(function(r){return !isValidStudentId_(r[1]);}).length,
       invalidGroupIds:groupRows.filter(function(g){return !isValidGroupId_(g.id);}).length,unmatchedStudents:unmatched,stageGroups:stageGroups,stageStudents:stageStudents,types:types},
-    semesters:summary_(studentRows,allMarks,indexed,released),lastSyncedAt:lastSync,
-    sourceStatus:sources.map(function(s){return {semester:s.semester,phases:['P1','P2','Defense'].map(function(p){return {phase:p,published:!!released[s.semester+'|'+p],indexed:indexed.some(function(r){return r.semester===s.semester&&r.phase===p;})};})};})};
+    semesters:summary_(studentRows,allMarks,indexed),lastSyncedAt:lastSync,
+    sourceStatus:sources.map(function(s){return {semester:s.semester,phases:['P1','P2','Defense'].map(function(p){return {phase:p,indexed:indexed.some(function(r){return r.semester===s.semester&&r.phase===p;})};})};})};
 }
 function listPanelLinks_(managerId,phase) {
   var sheet=SpreadsheetApp.openById(managerId).getSheetByName(PHASE_INFO[phase].managerTab);assert_(sheet,'Panel source missing');
@@ -398,7 +407,7 @@ function readEvaluator_(entry,phase,semester) {
   var rows=sheet.getRange(cfg.first,1,last-cfg.first+1,Math.max(cfg.comment,cfg.member,cfg.mark)).getDisplayValues();
   var groupId='', groupFeedback='', output=[],now=new Date().toISOString();
   rows.forEach(function(r){
-    if(isValidGroupId_(r[cfg.group-1])){groupId=String(r[cfg.group-1]);groupFeedback='';}
+    if(isValidGroupId_(r[cfg.group-1])){groupId=groupId_(r[cfg.group-1]);groupFeedback='';}
     var member=norm_(r[cfg.member-1]);if(!groupId || !member)return;
     if(phase==='Defense'&&!isValidStudentId_(member))return;
     if(phase!=='Defense'&&member.indexOf('@')<0)return;
@@ -429,8 +438,8 @@ function syncPhase_(semester,phase) {
     var main=book.getSheetByName('Comments'),existing=comments_().filter(function(c){return !(c.semester===semester&&c.phase===phase);}).map(function(c){return [c.semester,c.phase,c.thesisId,c.memberKey,c.score===null?'':c.score,c.comment,c.evaluator,c.sourceId,c.syncedAt];});
     var staged=sheet.getLastRow()>1?sheet.getRange(2,1,sheet.getLastRow()-1,COMMENT_HEADERS.length).getDisplayValues():[];
     replaceRows_(main,existing.concat(staged));
-    // A refreshed import must be explicitly reviewed and re-published.
-    var releaseFlags=releases_();releaseFlags[semester+'|'+phase]=false;setJsonProp_('RELEASED_PHASES_JSON',releaseFlags);
+    // The staged import is atomic. Once synchronized, available comments are
+    // shown to the verified student and their assigned faculty immediately.
     book.deleteSheet(sheet);scriptProps_().deleteProperty(key);
     return {complete:true,processed:links.length,total:links.length,imported:staged.length};
   } finally {lock.releaseLock();}
@@ -538,17 +547,9 @@ function request_(body) {
   if(action==='student'){permission_(role,['student']);return studentDashboard_(email,studentRows,groupRows);}
   if(action==='supervisor'){permission_(role,['supervisor']);return supervisorDashboard_(email,studentRows,groupRows);}
   if(action==='deadlines'){
-    var deadlines=deadlineLinks_();
-    if(role==='student'){
-      var own=studentRows.filter(function(s){return s.email===email||s.aliases.indexOf(email)>=0;})[0];
-      var ownGroup=own&&groupRows.filter(function(g){return g.id===own.thesisId;})[0];
-      var ownPhase=activeDeadlinePhase_(ownGroup?ownGroup.stage:'');
-      deadlines=deadlines.filter(function(entry){return !!ownPhase&&entry.phase===ownPhase;});
-    }else if(role==='supervisor'){
-      var allowed=facultyGroups_(email,groupRows).map(function(g){return activeDeadlinePhase_(g.stage);}).filter(Boolean);
-      deadlines=deadlines.filter(function(entry){return allowed.indexOf(entry.phase)>=0;});
-    }
-    return {entries:deadlines};
+    // The three academic phases are common university information. Keep the
+    // same P1/P2/Defense view for every authenticated portal role.
+    return {entries:deadlineLinks_().filter(function(entry){return ['P1','P2','Defense'].indexOf(entry.phase)>=0;})};
   }
   if(action==='suggest'){permission_(role,['prime_admin']);return suggestAcademic_(p.q,studentRows,groupRows);}
   if(action==='search'){permission_(role,['admin','prime_admin']);return adminSearch_(p.q,p.stage,p.type,studentRows,groupRows,p.offset,p.facultyEmail);}
@@ -575,7 +576,7 @@ function request_(body) {
     auditPreview_(email,previewRole,target);
     return {role:previewRole,email:target,data:facultyPreview};
   }
-  if(action==='registry'){permission_(role,['admin','prime_admin']);return {sources:sourceRegistry_(),releases:releases_()};}
+  if(action==='registry'){permission_(role,['admin','prime_admin']);return {sources:sourceRegistry_()};}
   if(action==='admins'){permission_(role,['prime_admin']);return {admins:adminEmails_()};}
   if(action==='aliases'){permission_(role,['prime_admin']);return {aliases:jsonProp_('STUDENT_ALIASES_JSON',{})};}
   if(action==='setAlias'||action==='removeAlias'){
@@ -619,17 +620,6 @@ function request_(body) {
   }
   if(action==='sync'){permission_(role,['admin','prime_admin']);return syncPhase_(String(p.semester||''),String(p.phase||''));}
   if(action==='restartSync'){permission_(role,['admin','prime_admin']);return restartSync_(String(p.semester||''),String(p.phase||''));}
-  if(action==='release'){
-    permission_(role,['admin','prime_admin']);var releasePhase=String(p.phase||''),releaseSemester=String(p.semester||'');
-    assert_(!!PHASE_INFO[releasePhase]&&sourceRegistry_().some(function(s){return s.semester===releaseSemester;}),'Unknown semester or phase');
-    var published=releases_();
-    if(p.published){
-      var semesterRows=comments_().filter(function(c){return c.semester===releaseSemester&&c.phase===releasePhase;});
-      assert_(semesterRows.length>0,'Synchronize this semester and phase before publishing');
-      assert_(semesterRows.every(function(c){return c.score!==null&&!!c.comment&&c.comment!=='-';}),'Every evaluator record needs a mark and a comment before phase publication');
-    }
-    published[releaseSemester+'|'+releasePhase]=!!p.published;setJsonProp_('RELEASED_PHASES_JSON',published);return {releases:published};
-  }
   refuse_('Unknown API action');
 }
 function doPost(e) {

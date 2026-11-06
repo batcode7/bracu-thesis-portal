@@ -7,7 +7,7 @@ import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 type Phase = 'P1' | 'P2' | 'Defense';
 type Completion = { students: number; groups: number };
 type SemesterSummary = { semester: string; students: number; groups: number; P1: Completion; P2: Completion; Defense: Completion };
-type SemesterStatus = { semester: string; phases: Array<{ phase: Phase; published: boolean; indexed: boolean }> };
+type SemesterStatus = { semester: string; phases: Array<{ phase: Phase; indexed: boolean }> };
 type Overview = { students: number; groups: number; recorded: Record<Phase, number>; semesters: SemesterSummary[]; sourceStatus: SemesterStatus[]; lastSyncedAt: string;
   diagnostics?:{sourceStudents:number;sourceGroups:number;validStudents:number;validGroups:number;invalidStudentIds:number;invalidGroupIds:number;unmatchedStudents:number;stageGroups:Record<string,number>;stageStudents:Record<string,number>;types:Record<string,number>} };
 type DirectoryRow = { student: { id: string; name: string; email: string; thesisId: string }; group: ThesisGroup };
@@ -47,10 +47,10 @@ export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate
   useEffect(() => { reload(); }, [token]);
   const current = overview?.semesters.find(row => row.semester === semester);
   const status = overview?.sourceStatus.find(row => row.semester === semester);
-  const pending = overview?.sourceStatus.reduce((count, row) => count + row.phases.filter(p => !p.published).length, 0) || 0;
+  const indexedPhases = overview?.sourceStatus.reduce((count, row) => count + row.phases.filter(p => p.indexed).length, 0) || 0;
   return <div className="prime-stack">
     <section className="prime-intro">
-      <div><span className="eyebrow">ACADEMIC SNAPSHOT</span><h2>A clearer view of thesis activity.</h2><p>Registered records, recorded marks, publication readiness, and shortcuts in one place.</p></div>
+      <div><span className="eyebrow">ACADEMIC SNAPSHOT</span><h2>A clearer view of thesis activity.</h2><p>Registered records, recorded marks, panel feedback, and shortcuts in one place.</p></div>
       <button className="lightbtn" type="button" onClick={reload} disabled={busy}><Activity size={15} /> Refresh overview</button>
     </section>
     {error && <div className="live-error" role="alert">{error}</div>}
@@ -63,17 +63,17 @@ export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate
         <Metric title="Groups in P2" count={overview.diagnostics?.stageGroups.P2||0} description="All registered groups" icon={GraduationCap} />
         <Metric title="Final thesis / defense" count={overview.diagnostics?.stageGroups.Defense||0} description="All registered groups" icon={GraduationCap} />
         <Metric title="Completed groups" count={overview.diagnostics?.stageGroups.Completed||0} description="All registered groups" icon={CheckCircle2} />
-        <Metric title="Phases awaiting release" count={pending} description="Across registered semesters" icon={Clock3} />
+        <Metric title="Indexed evaluation phases" count={indexedPhases} description="Across registered semesters" icon={Clock3} />
       </div>
       <div className="prime-two-column">
         <section className="card prime-panel">
-          <div className="prime-panel-heading"><div><h3>Evaluation publication</h3><p>Only synchronized and formally released results count below.</p></div><select aria-label="Select reporting semester" value={semester} onChange={event => setSemester(event.target.value)}>{overview.semesters.map(row => <option key={row.semester}>{row.semester}</option>)}</select></div>
+          <div className="prime-panel-heading"><div><h3>Evaluation records</h3><p>Synchronized panel feedback and available master marks are shown directly.</p></div><select aria-label="Select reporting semester" value={semester} onChange={event => setSemester(event.target.value)}>{overview.semesters.map(row => <option key={row.semester}>{row.semester}</option>)}</select></div>
           <div className="prime-phase-list">
             {(['P1', 'P2', 'Defense'] as Phase[]).map(phase => {
               const phaseStatus = status?.phases.find(p => p.phase === phase);
               return <div className="prime-phase" key={phase}>
-                <div><span className="prime-phase-dot" /><div><b>{phaseNames[phase]}</b><small>{current?.[phase].students || 0} students · {current?.[phase].groups || 0} groups with released results</small></div></div>
-                <span className={`prime-state ${phaseStatus?.published ? 'is-ready' : phaseStatus?.indexed ? 'is-waiting' : ''}`}>{phaseStatus?.published ? 'Published' : phaseStatus?.indexed ? 'Awaiting publication' : 'Not synchronized'}</span>
+                <div><span className="prime-phase-dot" /><div><b>{phaseNames[phase]}</b><small>{current?.[phase].students || 0} students · {current?.[phase].groups || 0} groups with indexed records</small></div></div>
+                <span className={`prime-state ${phaseStatus?.indexed ? 'is-ready' : ''}`}>{phaseStatus?.indexed ? 'Indexed' : 'Not synchronized'}</span>
               </div>;
             })}
           </div>
@@ -81,7 +81,7 @@ export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate
         </section>
         <section className="card prime-panel prime-activity">
           <div className="prime-panel-heading"><div><h3>Workspace health</h3><p>Clear status, without guessing at missing data.</p></div><Database size={19} /></div>
-          <div className="prime-health-item"><span className="prime-health-icon"><CheckCircle2 size={17} /></span><div><b>Master records available</b><small>{overview.students} students and {overview.groups} groups loaded independently of evaluation publication</small></div></div>
+          <div className="prime-health-item"><span className="prime-health-icon"><CheckCircle2 size={17} /></span><div><b>Master records available</b><small>{overview.students} students and {overview.groups} groups loaded directly from the master</small></div></div>
           {overview.diagnostics&&<div className="prime-health-item"><span className="prime-health-icon"><FileSearch size={17}/></span><div><b>Data reconciliation</b><small>{overview.diagnostics.sourceStudents} source student rows · {overview.diagnostics.sourceGroups} source group rows · {overview.diagnostics.unmatchedStudents} students without a matching group · {overview.diagnostics.invalidStudentIds} invalid student IDs · {overview.diagnostics.invalidGroupIds} unusual group IDs</small></div></div>}
           <div className="prime-health-item"><span className="prime-health-icon"><Clock3 size={17} /></span><div><b>Last evaluation index update</b><small>{friendlyDate(overview.lastSyncedAt)}</small></div></div>
           <div className="prime-health-item"><span className="prime-health-icon"><CalendarDays size={17} /></span><div><b>Deadlines & resources</b><small>Review current submissions and academic links.</small></div></div>
@@ -89,9 +89,9 @@ export function PrimeOverview({ token, onNavigate }: { token: string; onNavigate
         </section>
       </div>
       <section className="card prime-panel">
-        <div className="prime-panel-heading"><div><h3>Semester summary</h3><p>Distinct students and groups with released evaluation records.</p></div><span className="prime-subtle-tag">Live data</span></div>
+        <div className="prime-panel-heading"><div><h3>Semester summary</h3><p>Distinct students and groups with synchronized marks or feedback.</p></div><span className="prime-subtle-tag">Live data</span></div>
         <div className="tableoverflow"><table className="prime-table"><thead><tr><th>Semester</th><th>Students</th><th>Groups</th><th>Pre-Thesis 1</th><th>Pre-Thesis 2</th><th>Final Defense</th></tr></thead><tbody>{overview.semesters.map(row => <tr key={row.semester}><td><b>{row.semester}</b></td><td>{row.students}</td><td>{row.groups}</td><td>{row.P1.students} / {row.P1.groups}</td><td>{row.P2.students} / {row.P2.groups}</td><td>{row.Defense.students} / {row.Defense.groups}</td></tr>)}{!overview.semesters.length && <tr><td colSpan={6}>No semester managers registered yet.</td></tr>}</tbody></table></div>
-        <p className="prime-footnote">Counts in the top cards refer to the entire permanent master. Semester figures refer only to released, synchronized evaluations; they are not semester enrollment totals.</p>
+        <p className="prime-footnote">Counts in the top cards refer to the entire permanent master. Semester figures require indexed evaluator records and are not semester enrollment totals.</p>
       </section>
       <button className="prime-quick-search" onClick={() => onNavigate('search')}><span><FileSearch size={21} /></span><div><b>Need a particular record?</b><small>Find a student, group, thesis title, or supervisor.</small></div><ChevronRight size={19} /></button>
     </>}
@@ -179,14 +179,14 @@ export function PrimeSearch({ token }: { token: string }) {
     {loaded&&total>100&&<div className="formrow" role="navigation" aria-label="Student search pages"><button className="lightbtn" disabled={busy||offset===0} onClick={()=>void run(Math.max(0,offset-100))}>Previous 100</button><span className="smallmuted">Page {Math.floor(offset/100)+1} of {Math.ceil(total/100)}</span><button className="lightbtn" disabled={busy||offset+100>=total} onClick={()=>void run(offset+100)}>Next 100</button></div>}
     {detailBusy && <div className="modaloverlay" role="presentation"><section className="modalbox prime-detail-loading" role="status" aria-live="polite"><LoadingLines label="Loading student and thesis details" /></section></div>}
     {selected && !detailBusy && <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}><section className="modalbox admin-detail prime-detail" role="dialog" aria-modal="true" aria-label="Detailed student record"><div className="modalheader"><div><span className="eyebrow">ACADEMIC RECORD</span><h2>{selected.student.name}</h2><p className="detail-subtitle">Student ID {selected.student.id} · {selected.student.email}</p></div><button className="iconbtn" aria-label="Close student details" onClick={() => setSelected(null)}><X size={19} /></button></div>
-      <div className="prime-id-band"><div><small>Thesis / project ID</small><strong>{selected.group.id}</strong></div><CopyValue value={selected.group.id} label="Copy ID" /></div>
+      <div className="prime-id-band"><div><small>{selected.group.type} ID</small><strong>{selected.group.id}</strong></div><CopyValue value={selected.group.id} label="Copy ID" /></div>
       <div className="detail-pairs"><div><small>Research title</small><b>{selected.group.title || 'Not listed'}</b></div><div><small>Current stage</small><b>{selected.group.stage || 'Not listed'}</b></div><div><small>Submission type</small><b>{selected.group.type || 'Not listed'}</b></div><div><small>Student email</small><b>{selected.student.email || 'Not listed'}</b></div></div>
       <div className="detail-section"><h3>Supervision team</h3><div className="prime-supervisor-grid">{[
         ['Supervisor 1', selected.group.primarySupervisor], ['Supervisor 2', selected.group.secondarySupervisor],
         ['Co-supervisor 1', selected.group.coSupervisor1], ['Co-supervisor 2', selected.group.coSupervisor2],
       ].map(([label, name]) => <div key={label}><small>{label}</small><strong className={!name ? 'prime-muted' : ''}>{name || 'Not assigned'}</strong></div>)}</div></div>
       <div className="detail-section"><h3>Group members</h3><div className="memberlist">{selected.members.map(member => <div key={member.id}><Users size={15} /><span>{member.name}</span><small>{member.id}</small></div>)}</div></div>
-      <div className="detail-section"><h3>Recorded marks</h3><p className="prime-footnote">Administrative records only. Publication to students follows separate release and feedback checks.</p><div className="mark-summary">{(['p1', 'p2', 'defense', 'supervisor'] as const).map(field => <div key={field}><span>{field.toUpperCase()}</span><strong>{selected.marks?.[field] ?? 'Pending'}</strong></div>)}</div></div>
+      <div className="detail-section"><h3>Recorded marks</h3><p className="prime-footnote">Values come from the permanent master. Available marks and indexed comments also appear in the verified student's workspace.</p><div className="mark-summary">{(['p1', 'p2', 'defense', 'supervisor'] as const).map(field => <div key={field}><span>{field.toUpperCase()}</span><strong>{selected.marks?.[field] ?? 'Pending'}</strong></div>)}</div></div>
     </section></div>}
   </div>;
 }

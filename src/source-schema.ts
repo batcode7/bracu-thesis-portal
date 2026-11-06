@@ -3,12 +3,12 @@
  * workbooks per phase. This is structural metadata only; it contains no
  * private spreadsheet IDs, access tokens, or student records.
  *
- * Do not use this client module as an authorization mechanism. The future
- * server must enforce role scope and per-evaluation publication rules.
+ * Do not use this client module as an authorization mechanism. The live
+ * server verifies the user and scopes every academic response by role.
  */
 export const VERIFIED_MASTER_COLUMNS = [
   { tab: 'All student info', lookup: 'Email (E)', fields: 'Student ID (B), name (C), thesis ID (D)' },
-  { tab: 'Group info', lookup: 'Thesis ID (B)', fields: 'Type (C), current level (D), supervisors (E–H), title (I)' },
+  { tab: 'Group info', lookup: 'Thesis ID (B)', fields: 'Type (C), current level (D), supervisors (E–H), title (I), abstract (J)' },
   { tab: 'Marks', lookup: 'Student ID (B)', fields: 'P1 (H), P2 (I), defense parts (J–L), supervisor (M)' },
 ] as const;
 
@@ -24,5 +24,5 @@ export const SOURCE_LOOKUP_RULES = [
   'Resolve the relevant phase and semester independently; retain links to every previous semester.',
   'Find the evaluator workbook link in that semester’s panel tab (column I), then read its marks and remarks.',
   'A blank group ID on a member row inherits the last nonblank group ID above it.',
-  'Only publish an approved score alongside nonblank faculty feedback; zero is a valid mark, not missing data.',
+  'Show verified students their own existing master marks and matching indexed comments independently; zero is a valid mark, not missing data.',
 ] as const;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, MapPin, Search, Users, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, MapPin, MessageSquareText, Search, Users, X } from 'lucide-react';
 import type { SupervisorDashboard } from './portal-api';
 import type { ThesisGroup } from './data';
 import { studentPhase } from './StudentExperience';
@@ -20,12 +20,13 @@ function matchesStage(group: ThesisGroup, filter: StageFilter) {
   return studentPhase(group.stage) === filter;
 }
 
-function Progress({ done, label }: {done?:boolean;label:string}) {
-  return <span className={`supervisor-record-pill ${done?'recorded':''}`}>{label}: {done?'Recorded':'Pending'}</span>;
+function Progress({ score, done, label, maximum }: {score?:number|null;done?:boolean;label:string;maximum:number}) {
+  const available=score!==null&&score!==undefined;
+  return <span className={`supervisor-record-pill ${available||done?'recorded':''}`}>{label}: {available?`${score} / ${maximum}`:done?'Recorded':'—'}</span>;
 }
 
 function GroupDetails({group,students,onClose}:{group:GroupRecord;students:AssignedStudent[];onClose:()=>void}) {
-  const [copied,setCopied]=useState(false);
+  const [copied,setCopied]=useState(false),[emailsCopied,setEmailsCopied]=useState(false),[copyError,setCopyError]=useState('');
   useEffect(()=>{
     const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onClose();};
     window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
@@ -35,19 +36,30 @@ function GroupDetails({group,students,onClose}:{group:GroupRecord;students:Assig
     {role:'Supervisor 2',name:group.secondarySupervisor},
     {role:'Co-supervisor 1',name:group.coSupervisor1},
     {role:'Co-supervisor 2',name:group.coSupervisor2},
-  ];
+  ].filter(item=>!!item.name?.trim()&&!/^(?:not assigned|n\/?a|none|-+)$/i.test(item.name.trim()));
+  const studentEmails=[...new Set(students.map(student=>student.email?.trim()).filter((address):address is string=>!!address).map(address=>address.toLowerCase()))];
+  const feedback=group.feedback||[];
   return <div className="modaloverlay" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
     <section className="modalbox supervisor-detail" role="dialog" aria-modal="true" aria-labelledby="supervisor-dialog-heading">
-      <div className="modalheader"><div><span className="eyebrow">ASSIGNED RESEARCH GROUP</span><h2 id="supervisor-dialog-heading">{group.id}</h2><p className="supervisor-modal-title">{group.title||'Research title not listed'}</p></div><button type="button" className="iconbtn" aria-label="Close group details" onClick={onClose}><X size={20}/></button></div>
+      <div className="modalheader"><div><span className="eyebrow">ASSIGNED RESEARCH GROUP</span><h2 id="supervisor-dialog-heading">{group.title||'Research title not listed'}</h2></div><button type="button" className="iconbtn" aria-label="Close group details" onClick={onClose}><X size={20}/></button></div>
+      <section className="supervisor-abstract"><h3>Abstract</h3><p>{group.abstract?.trim()||'No abstract has been recorded for this group yet.'}</p></section>
+      <div className="supervisor-modal-id"><span>{group.type} ID</span><strong>{group.id}</strong><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(group.id);setCopied(true);window.setTimeout(()=>setCopied(false),1800);}catch{setCopied(false);}}} aria-label="Copy group ID">{copied?<Check size={15}/>:<ClipboardCopy size={15}/>} {copied?'Copied':'Copy ID'}</button></div>
       <div className="supervisor-modal-summary"><span><b>Stage</b>{group.stage}</span><span><b>Type</b>{group.type}</span><span><b>Students</b>{students.length}</span></div>
-      <div className="supervisor-modal-id"><span>Thesis / project / internship ID</span><strong>{group.id}</strong><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(group.id);setCopied(true);window.setTimeout(()=>setCopied(false),1800);}catch{setCopied(false);}}} aria-label="Copy group ID">{copied?<Check size={15}/>:<ClipboardCopy size={15}/>} {copied?'Copied':'Copy ID'}</button></div>
       <div className="supervisor-detail-section"><h3>Supervision team</h3><div className="supervisor-team-grid">{team.map(item=>{
         const contact=group.facultyContacts?.find(f=>f.slot===item.role);
-        return <div key={item.role}><small>{item.role}</small><strong className={!item.name?'supervisor-unassigned':''}>{item.name||'Not assigned'}</strong>{contact?.email&&<a className="supervisor-faculty-contact" href={`mailto:${contact.email}`}><Mail size={13}/>{contact.email}</a>}{contact?.room&&<span className="supervisor-faculty-contact"><MapPin size={13}/>Room {contact.room}</span>}</div>;
+        return <div key={item.role}><small>{item.role}</small><strong>{contact?.name||item.name}</strong>{contact?.email&&<a className="supervisor-faculty-contact" href={`mailto:${contact.email}`}><Mail size={13}/>{contact.email}</a>}{contact?.room&&<span className="supervisor-faculty-contact"><MapPin size={13}/>Room {contact.room}</span>}</div>;
       })}</div></div>
-      <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Group students</h3><small>{students.length} {students.length===1?'student':'students'}</small></div>
-        {students.length?<div className="supervisor-modal-students">{students.map(student=><article key={student.id} className="supervisor-student-card"><div className="supervisor-student-head"><span className="supervisor-student-avatar"><Users size={17}/></span><div><strong>{student.name}</strong><small>Student ID · {student.id}</small></div></div>{student.email&&<div className="supervisor-student-email"><Mail size={14}/><span>{student.email}</span></div>}<div className="supervisor-student-records"><Progress done={student.progress?.p1} label="P1"/><Progress done={student.progress?.p2} label="P2"/><Progress done={student.progress?.defense} label="Defense"/></div></article>)}</div>:<p className="supervisor-no-members">No students are currently linked to this group in the master records.</p>}
-        <p className="supervisor-detail-note">Recorded means a mark exists in the permanent master. It does not mean that mark has been published to the student.</p>
+      <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Group students</h3><div className="supervisor-roster-actions"><small>{students.length} {students.length===1?'student':'students'}</small><button className="supervisor-copy-emails" type="button" disabled={!studentEmails.length} onClick={async()=>{try{await navigator.clipboard.writeText(studentEmails.join(', '));setEmailsCopied(true);setCopyError('');window.setTimeout(()=>setEmailsCopied(false),1800);}catch{setCopyError('Could not copy the email list. Check browser clipboard permissions.');}}}>{emailsCopied?<Check size={14}/>:<ClipboardCopy size={14}/>} {emailsCopied?'Emails copied':'Copy all emails'}</button></div></div>
+        {copyError&&<p className="supervisor-copy-error" role="alert">{copyError}</p>}
+        {students.length?<div className="supervisor-modal-students">{students.map(student=><article key={student.id} className="supervisor-student-card"><div className="supervisor-student-head"><span className="supervisor-student-avatar"><Users size={17}/></span><div><strong>{student.name}</strong><small>Student ID · {student.id}</small></div></div>{student.email&&<div className="supervisor-student-email"><Mail size={14}/><span>{student.email}</span></div>}<div className="supervisor-student-records"><Progress score={student.marks?.p1} done={student.progress?.p1} label="P1" maximum={5}/><Progress score={student.marks?.p2} done={student.progress?.p2} label="P2" maximum={10}/><Progress score={student.marks?.defense} done={student.progress?.defense} label="Defense" maximum={30}/>{student.marks?.supervisor!==undefined&&student.marks?.supervisor!==null&&<Progress score={student.marks.supervisor} label="Supervisor" maximum={55}/>}</div></article>)}</div>:<p className="supervisor-no-members">No students are currently linked to this group in the master records.</p>}
+      </div>
+      <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Panel feedback</h3><small>Comments indexed for this group</small></div>
+        <div className="supervisor-feedback-phases">{(['P1','P2','Defense'] as const).map(phase=>{
+          const phaseComments=feedback.filter(item=>item.phase===phase);
+          return <section className="supervisor-feedback-phase" key={phase}><div className="supervisor-feedback-heading"><MessageSquareText size={16}/><strong>{phase==='Defense'?'Final Defense':phase}</strong><span>{phaseComments.length} {phaseComments.length===1?'comment':'comments'}</span></div>
+            {phaseComments.length?phaseComments.map((item,index)=><article className="supervisor-feedback-card" key={`${phase}-${item.semester}-${index}`}><div className="supervisor-feedback-meta"><strong>{item.evaluator}</strong><span>{item.semester}</span></div><p>{item.comment}</p>{item.students.length>0&&<small>For: {item.students.join(', ')}</small>}</article>):<p className="supervisor-no-feedback">No comments recorded for this phase.</p>}
+          </section>;
+        })}</div>
       </div>
     </section>
   </div>;
@@ -75,7 +87,7 @@ export default function SupervisorExperience({data}:{data:SupervisorDashboard}) 
   const selected=distinctGroups.find(group=>group.id===selectedId);
   const reset=()=>{setQuery('');setStage('all');setType('all');setMyRole('all');};
   return <div className="supervisor-workspace">
-    <section className="supervisor-intro"><div><span className="eyebrow">ASSIGNED RESEARCH</span><h2>Groups under your supervision</h2><p>One group per record. Open a group to see its full roster, all supervisors, and recorded phase progress.</p></div></section>
+    <section className="supervisor-intro"><div><span className="eyebrow">ASSIGNED RESEARCH</span><h2>Groups under your supervision</h2></div></section>
     <div className="supervisor-stats"><div className="card"><span><GraduationCap size={17}/> Matching groups</span><strong>{groups.length}</strong><small>Updates with every filter</small></div><div className="card"><span><Users size={17}/> Unique students</span><strong>{matchingStudents}</strong><small>Across matching groups · deduplicated by ID</small></div></div>
     <section className="card supervisor-groups-panel"><div className="supervisor-filters"><label className="supervisor-search"><Search size={17}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search group ID, title or student…" aria-label="Search supervised groups" /></label><div className="supervisor-filter-fields"><label><span>Current stage</span><select value={stage} onChange={event=>setStage(event.target.value as StageFilter)}>{stageFilters.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label><span>Research type</span><select value={type} onChange={event=>setType(event.target.value as TypeFilter)}><option value="all">All types</option><option value="Thesis">Thesis</option><option value="Project">Project</option><option value="Internship">Internship</option></select></label><label><span>My role</span><select value={myRole} onChange={event=>setMyRole(event.target.value as RoleFilter)}><option value="all">All roles</option><option value="Supervisor">Supervisor</option><option value="Co-Supervisor">Co-Supervisor</option></select></label></div></div>
       <div className="supervisor-list-heading"><h3>{groups.length} {groups.length===1?'group':'groups'} · {matchingStudents} {matchingStudents===1?'student':'students'}</h3><span>{stage!=='all'||type!=='all'||myRole!=='all'||query?'Filtered from your assigned groups':'Only groups assigned to your verified faculty identity'}</span></div>

@@ -15,6 +15,7 @@ const context=vm.createContext({
   })},
 });
 vm.runInContext(source,context);
+const originalGroupReader=context.groups_;
 const students=[
   {id:'22101234',name:'First',thesisId:'T2530123',email:'first@gmail.com',aliases:['first@g.bracu.ac.bd']},
   {id:'22104567',name:'Second',thesisId:'T2530124',email:'second@gmail.com',aliases:['second@g.bracu.ac.bd']},
@@ -52,7 +53,8 @@ test('student account is scoped to its own ID even when a different student ID i
   assert.equal(result.facultyContacts[0].email,'faculty@bracu.ac.bd');
   assert.equal(result.facultyContacts[1].email,''); // Unknown faculty must not get an invented email.
   assert.equal(result.evaluations.find(e=>e.phase==='P1').score,4);
-  assert.equal(result.evaluations.find(e=>e.phase==='P2').score,null);
+  assert.equal(result.evaluations.find(e=>e.phase==='P2').score,8);
+  assert.match(result.evaluations.find(e=>e.phase==='P2').comment,/Add experiments/);
   assert.throws(()=>run('first@g.bracu.ac.bd','search',{q:'22104567'}),/Not authorized/);
   assert.throws(()=>run('first@g.bracu.ac.bd','detail',{studentId:'22104567'}),/Not authorized/);
 });
@@ -64,7 +66,52 @@ test('supervisor receives only the group matched by trusted email/name mapping',
   assert.equal(result.groups[0].facultyContacts[1].email,'');
   assert.equal(result.groups[0].coSupervisor1,'Faculty B');
   assert.equal(result.students[0].progress.p1,true);
+  assert.equal(result.students[0].marks.p1,4);
+  assert.equal(result.students[0].marks.p2,8);
+  assert.equal(result.groups[0].feedback.length,2);
+  assert.equal(result.groups[0].feedback.find(e=>e.phase==='P2').comment,'Add experiments');
+  assert.deepEqual(Array.from(result.groups[0].feedback.find(e=>e.phase==='P2').students),['First (22101234)']);
   assert.throws(()=>run('faculty@bracu.ac.bd','detail',{studentId:'22104567'}),/Not authorized/);
+});
+test('Group info reads the new abstract beside the thesis title',()=>{
+  const previous=context.rows_;
+  const row=['','P2510530','Project','Completed','Mr. Partha Bhoumik','','Ms. Sukarna Sarker','','Vector Population Modeling','Study of environmental and geospatial factors.'];
+  context.rows_=(id,tab,width)=>{assert.equal(tab,'Group info');assert.equal(width,10);return [['','Thesis ID','Type','Stage','','','','','Title','Abstract'],row];};
+  try{
+    const loaded=originalGroupReader();
+    assert.equal(loaded[0].id,'P2510530');
+    assert.equal(loaded[0].type,'Project');
+    assert.equal(loaded[0].title,'Vector Population Modeling');
+    assert.equal(loaded[0].abstract,'Study of environmental and geospatial factors.');
+  }finally{context.rows_=previous;}
+});
+test('supervisors see only their own group comments, deduplicated across evaluator rows',()=>{
+  const old=context.comments_;
+  context.comments_=()=>[
+    ...evaluations,
+    {...evaluations[0],memberKey:'first@g.bracu.ac.bd'},
+    {...evaluations[0],memberKey:'second@gmail.com',comment:'Mismatched member must stay private'},
+    {...evaluations[0],phase:'Defense',thesisId:'T2530124',memberKey:'second@gmail.com',comment:'Private group B defense feedback'},
+  ];
+  try{
+    const result=run('faculty@bracu.ac.bd','supervisor');
+    assert.equal(result.groups.length,1);
+    assert.equal(result.groups[0].feedback.length,2);
+    assert.ok(result.groups[0].feedback.every(f=>!f.comment.includes('Private group B')&&!f.comment.includes('Mismatched member')));
+    assert.equal(result.groups[0].feedback.find(f=>f.phase==='P1').students.length,1);
+    assert.equal(result.groups[0].feedback[0].sourceId,undefined);
+  }finally{context.comments_=old;}
+});
+test('zero is a recorded mark and a missing comment does not conceal it',()=>{
+  const old=context.marks_;
+  context.marks_=()=>({...marks,'22101234':{p1:0,p2:null,defense:null,supervisor:0}});
+  try{
+    const result=run('first@g.bracu.ac.bd','student');
+    assert.equal(result.evaluations.find(e=>e.phase==='P1').score,0);
+    assert.equal(result.evaluations.find(e=>e.phase==='P2').score,null);
+    assert.match(result.evaluations.find(e=>e.phase==='P2').comment,/Add experiments/);
+    assert.equal(result.evaluations.find(e=>e.phase==='Supervisor').score,0);
+  }finally{context.marks_=old;}
 });
 test('only the protected prime administrator can grant ordinary admin rights',()=>{
   assert.throws(()=>run('faculty@bracu.ac.bd','addAdmin',{email:'admin@bracu.ac.bd'}),/Not authorized/);
@@ -74,30 +121,36 @@ test('only the protected prime administrator can grant ordinary admin rights',()
   assert.throws(()=>run('admin@bracu.ac.bd','addAdmin',{email:'other@bracu.ac.bd'}),/Not authorized/);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'partha.bhoumik@bracu.ac.bd'}),/Invalid administrator/);
 });
-test('blank evaluator comments fail closed even when phase is released',()=>{
+test('blank evaluator comments do not conceal an official master mark or valid feedback',()=>{
   const blank=[...evaluations,{...evaluations[0],evaluator:'Judge C',comment:''}];
   context.comments_=()=>blank;
-  assert.equal(run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P1').score,null);
+  const record=run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P1');
+  assert.equal(record.score,4);
+  assert.match(record.comment,/Revise methodology/);
+  assert.doesNotMatch(record.comment,/Judge C/);
   context.comments_=()=>evaluations;
 });
 test('unregistered Workspace emails and consumer Gmail do not become portal users',()=>{
   assert.throws(()=>run('unknown@bracu.ac.bd','session'),/not authorized/);
   assert.throws(()=>run('first@gmail.com','session'),/verified BRAC identity/);
 });
-test('phase release rejects incomplete evaluated records',()=>{
+test('obsolete academic publishing action cannot be called',()=>{
   context.comments_=()=>[{...evaluations[1],comment:''}];
-  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','release',{semester:'Summer 2026',phase:'P2',published:true}),/comment before phase publication/);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','release',{semester:'Summer 2026',phase:'P2',published:true}),/Unknown API action/);
+  assert.equal(run('first@g.bracu.ac.bd','student').evaluations.find(e=>e.phase==='P2').score,8);
   context.comments_=()=>evaluations;
 });
-test('admin semester stats count complete students once, not one per evaluator',()=>{
+test('admin semester stats count synced students once, independent of manual publication',()=>{
   props.SEMESTER_SOURCES_JSON=JSON.stringify([{semester:'Spring 2025',spreadsheetId:'oldsource'},{semester:'Summer 2026',spreadsheetId:'newsource'}]);
   context.comments_=()=>[evaluations[0],{...evaluations[0],evaluator:'Second judge'}];
   const result=run('partha.bhoumik@bracu.ac.bd','summary').semesters;
   assert.equal(result[0].P1.students,1);
   assert.equal(result[0].P1.groups,1);
-  assert.equal(result[1].P2.students,0);
+  assert.equal(result[1].P2.students,0); // No P2 indexed rows in this fixture.
   context.comments_=()=>[evaluations[0],{...evaluations[0],evaluator:'Second judge',comment:''}];
-  assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[0].P1.students,0);
+  assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[0].P1.students,1);
+  context.comments_=()=>evaluations;
+  assert.equal(run('partha.bhoumik@bracu.ac.bd','summary').semesters[1].P2.students,1);
   context.comments_=()=>evaluations;
   delete props.SEMESTER_SOURCES_JSON;
 });
@@ -111,7 +164,7 @@ test('only the Prime Administrator can preview another role, and previews are re
   const student=run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'first@g.bracu.ac.bd'});
   assert.equal(student.role,'student');
   assert.equal(student.data.student.id,'22101234');
-  assert.equal(student.data.evaluations.find(e=>e.phase==='P2').score,null);
+  assert.equal(student.data.evaluations.find(e=>e.phase==='P2').score,8);
   const supervisor=run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'faculty@bracu.ac.bd'});
   assert.deepEqual(Array.from(supervisor.data.groups,g=>g.id),['T2530123']);
   const admin=run('partha.bhoumik@bracu.ac.bd','preview',{role:'admin'});
@@ -119,7 +172,7 @@ test('only the Prime Administrator can preview another role, and previews are re
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'student',email:'unknown@g.bracu.ac.bd'}),/No student record/);
   assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','preview',{role:'supervisor',email:'unknown@bracu.ac.bd'}),/Faculty email not in/);
 });
-test('Prime overview distinguishes actual master records from released semester statistics',()=>{
+test('Prime overview distinguishes actual master records from synchronized semester statistics',()=>{
   const previous=context.rows_;
   context.rows_=(id,tab)=>tab==='All student info'?[['','22101234','First','T2530123',''],['','22104567','Second','T2530124','']]:tab==='Group info'?[['','T2530123','Thesis','Pre-Thesis 2'],['','T2530124','Project','Final Thesis']]:[];
   try{
@@ -250,19 +303,19 @@ test('official Faculty Details rows populate the secure directory without manual
     for(const key of Object.keys(props))if(key.startsWith('FACULTY_AUTO_'))delete props[key];
   }
 });
-test('deadline source rows are categorized and their rich-text links retained',()=>{
+test('deadline source keeps P1/P2/Defense and retains rich-text links',()=>{
   const previous=context.SpreadsheetApp;
   const rows=[['ALL','Information update','Monday','21 September','Expired','Click here'],['Pre-Thesis 1','Report submission','Friday','7 October','Expired','Click here'],['','Poster submission','Saturday','8 October','Reference','Link']];
   const rich=rows.map((row,i)=>row.map((_,j)=>({getLinkUrl:()=>j===5&&i===1?'https://forms.gle/example':null,getRuns:()=>[]})));
   context.SpreadsheetApp={openById:()=>({getSheetByName:()=>({getLastRow:()=>4,getRange:()=>({getDisplayValues:()=>rows,getRichTextValues:()=>rich})})})};
   try {
     const result=run('partha.bhoumik@bracu.ac.bd','deadlines').entries;
-    assert.deepEqual(Array.from(result,x=>x.phase),['General','P1','P1']);
-    assert.equal(result[1].url,'https://forms.gle/example');
+    assert.deepEqual(Array.from(result,x=>x.phase),['P1','P1']);
+    assert.equal(result[0].url,'https://forms.gle/example');
   } finally {context.SpreadsheetApp=previous;}
 });
 
-test('student deadlines are scoped to the registered thesis stage on the backend',()=>{
+test('every authenticated role sees the same three academic deadline phases',()=>{
   const old=context.deadlineLinks_;
   context.deadlineLinks_=()=>[
     {id:'g',phase:'General',title:'General reference'},
@@ -271,9 +324,9 @@ test('student deadlines are scoped to the registered thesis stage on the backend
     {id:'ft',phase:'Defense',title:'Final defense'},
   ];
   try {
-    assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['p2']);
-    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['p2']);
-    assert.equal(run('partha.bhoumik@bracu.ac.bd','deadlines').entries.length,4);
+    assert.deepEqual(Array.from(run('first@g.bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
+    assert.deepEqual(Array.from(run('faculty@bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
+    assert.deepEqual(Array.from(run('partha.bhoumik@bracu.ac.bd','deadlines').entries,x=>x.id),['p1','p2','ft']);
   }finally{context.deadlineLinks_=old;}
 });
 

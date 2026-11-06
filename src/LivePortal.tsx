@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BookOpen, CalendarDays, ChevronRight, ClipboardList, Clock3, Eye, GraduationCap, LayoutDashboard, LockKeyhole, LogOut, Megaphone, Menu, Search, ShieldCheck, TableProperties, Users, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, CalendarDays, ChevronRight, ClipboardList, Eye, GraduationCap, LayoutDashboard, LockKeyhole, LogOut, Megaphone, Menu, Search, ShieldCheck, TableProperties, Users, X } from 'lucide-react';
 import { GOOGLE_CLIENT_ID, liveRequest, cachedLiveRequest, clearLiveCache, invalidateLiveCache, subscribePortalActivity, type Session } from './live-api';
 import PortalLoading from './PortalLoading';
 import { PortalWelcome } from './PortalWelcome';
@@ -7,7 +7,7 @@ import { DeadlineBoard } from './DeadlineBoard';
 import { deadlineEntries, resourceLinks } from './deadlines-data';
 import { PrimeFacultyList, PrimeOverview, PrimePreviewDialog, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
 import { AdminAnnouncements } from './Announcements';
-import StudentExperience, { studentPhase } from './StudentExperience';
+import StudentExperience from './StudentExperience';
 import SupervisorExperience from './SupervisorExperience';
 import type { Evaluation } from './data';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
@@ -19,6 +19,18 @@ type Completion = { students:number; groups:number };
 type SummaryRow = {semester:string;students:number;groups:number;P1:Completion;P2:Completion;Defense:Completion};
 type Source = {semester:string;spreadsheetId:string};
 type Deadline = {id:string;phase:string;title:string;day:string;date:string;status:string;action:string;url:string};
+const SAVED_PAGE_PREFIX='bracu-thesis-portal-page:';
+function allowedPageForSession(session:Session,page:string):page is LivePage {
+  if(session.role==='student')return ['dashboard','evaluations','deadlines','resources','profile'].includes(page);
+  if(session.role==='supervisor')return ['dashboard','deadlines','resources','profile'].includes(page);
+  if(session.role==='admin')return ['dashboard','search','sources','deadlines','resources','announcements','profile'].includes(page);
+  return ['dashboard','search','sources','deadlines','resources','announcements','faculty','admins','profile'].includes(page);
+}
+function restoredPage(session:Session):LivePage {
+  try{const stored=window.sessionStorage.getItem(SAVED_PAGE_PREFIX+session.email)||'';return allowedPageForSession(session,stored)?stored:'dashboard';}
+  catch{return 'dashboard';}
+}
+function rememberPage(session:Session,page:LivePage){try{window.sessionStorage.setItem(SAVED_PAGE_PREFIX+session.email,page);}catch{/* The portal also works when sessionStorage is unavailable. */}}
 type GoogleLoginResponse = {credential:string};
 type GoogleAccount = {id:{initialize:(options:{client_id:string;callback:(response:GoogleLoginResponse)=>void;auto_select:boolean})=>void;renderButton:(element:HTMLElement,options:Record<string,unknown>)=>void;disableAutoSelect:()=>void}};
 declare global { interface Window {google?: {accounts:GoogleAccount}} }
@@ -83,38 +95,38 @@ function LiveSearch({token}:{token:string}) {
 function LiveSummary({token}:{token:string}) {
   const [rows,setRows]=useState<SummaryRow[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   useEffect(()=>{let active=true;setLoading(true);cachedLiveRequest<{semesters:SummaryRow[]}>(token,'summary',{},60000).then(data=>{if(active)setRows(data.semesters);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token]);
-  return <><div className="infobar"><CircleHelpIcon/> Counts reflect synchronized, released evaluations with marks and required comments. A zero may mean a semester has not been synchronized or published.</div>{error&&<div className="live-error">{error}</div>}{loading?<PortalLoading label="Loading semester results" detail="Checking released evaluation summaries…"/>:<section className="card admin-results"><div className="tableoverflow"><table><thead><tr><th>Semester</th><th>Students</th><th>Groups</th><th>P1 (students / groups)</th><th>P2 (students / groups)</th><th>Defense (students / groups)</th></tr></thead><tbody>{rows.map(r=><tr key={r.semester}><td><b>{r.semester}</b></td><td>{r.students}</td><td>{r.groups}</td><td>{r.P1.students} / {r.P1.groups}</td><td>{r.P2.students} / {r.P2.groups}</td><td>{r.Defense.students} / {r.Defense.groups}</td></tr>)}{!rows.length&&<tr><td colSpan={6} className="noresults">No synchronized semester statistics yet.</td></tr>}</tbody></table></div></section>}</>;
+  return <><div className="infobar"><CircleHelpIcon/> Semester counts reflect indexed evaluator records linked to verified students with available marks or comments. Master-only marks have no semester attribution.</div>{error&&<div className="live-error">{error}</div>}{loading?<PortalLoading label="Loading semester results" detail="Checking synchronized evaluation summaries…"/>:<section className="card admin-results"><div className="tableoverflow"><table><thead><tr><th>Semester</th><th>Students</th><th>Groups</th><th>P1 (students / groups)</th><th>P2 (students / groups)</th><th>Defense (students / groups)</th></tr></thead><tbody>{rows.map(r=><tr key={r.semester}><td><b>{r.semester}</b></td><td>{r.students}</td><td>{r.groups}</td><td>{r.P1.students} / {r.P1.groups}</td><td>{r.P2.students} / {r.P2.groups}</td><td>{r.Defense.students} / {r.Defense.groups}</td></tr>)}{!rows.length&&<tr><td colSpan={6} className="noresults">No synchronized semester statistics yet.</td></tr>}</tbody></table></div></section>}</>;
 }
 function CircleHelpIcon(){return <ShieldCheck size={16}/>;}
 
-function LiveDeadlines({token,stageScope,allowedPhases}:{token:string;stageScope?:string;allowedPhases?:string[]}) {
+function LiveDeadlines({token,allowSnapshot=false}:{token:string;allowSnapshot?:boolean}) {
   const [rows,setRows]=useState<Deadline[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   const [refreshId,setRefreshId]=useState(0);
   useEffect(()=>{let active=true;setLoading(true);cachedLiveRequest<{entries:Deadline[]}>(token,'deadlines',{},90000).then(x=>{if(active){setRows(x.entries);setError('');}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token,refreshId]);
-  const phase=stageScope?studentPhase(stageScope):null;
-  const reference=!loading&&!rows.length&&!stageScope&&!allowedPhases;
-  const entries=(reference?deadlineEntries:rows.map(r=>({...r,date:[r.day,r.date].filter(Boolean).join(' · ')}))).filter(item=>stageScope?!!phase&&item.phase===phase:allowedPhases?allowedPhases.includes(item.phase):true);
-  return <><div className="deadline-source-note"><Clock3 size={16}/><span>{stageScope?`Showing only ${stageScope} deadlines assigned to your thesis stage. Verify dates before submitting.`:allowedPhases?'Showing deadlines for the active stages of your assigned research groups. Verify dates before submitting.':'Submission deadlines come from the university source workbook. Verify dates and availability before submitting.'}</span><button type="button" className="lightbtn" disabled={loading} onClick={()=>{invalidateLiveCache('deadlines');setRefreshId(n=>n+1);}}>Refresh</button></div>
+  const reference=!loading&&!rows.length&&!error&&allowSnapshot;
+  const entries=(reference?deadlineEntries:rows.map(r=>({...r,date:[r.day,r.date].filter(Boolean).join(' · ')}))).filter(item=>['P1','P2','Defense'].includes(item.phase));
+  return <><div className="deadline-view-heading"><div><span className="eyebrow">ACADEMIC CALENDAR</span><h2>Submission deadlines</h2></div><button type="button" className="lightbtn" disabled={loading} onClick={()=>{invalidateLiveCache('deadlines');setRefreshId(n=>n+1);}}>Refresh</button></div>
     {error&&<div className="live-error" role="alert">The live deadline source could not be loaded: {error}</div>}
     {reference&&<div className="prime-deadline-status"><BookOpen size={17}/><span>Showing a clearly labeled reference snapshot from 5 November 2026 because the live feed has no available entries. Dates may be outdated.</span></div>}
-    {loading?<PortalLoading label="Loading relevant deadlines" detail="Reading stage-specific dates and submission information…"/>:<DeadlineBoard entries={entries} lockedPhase={stageScope?(phase||'No active stage'):undefined} availablePhases={allowedPhases}/>}
+    {loading?<PortalLoading label="Loading submission deadlines" detail="Reading the P1, P2 and Defense schedule…"/>:<DeadlineBoard entries={entries}/>}
   </>;
 }
 
-function LiveResources({stageScope,allowedPhases}:{stageScope?:string;allowedPhases?:string[]}) {
-  const phase=stageScope?studentPhase(stageScope):null;
-  const links=resourceLinks.filter(item=>!item.phase||(stageScope?item.phase===phase:allowedPhases?allowedPhases.includes(item.phase):true));
-  return <div className="student-resources-view"><div className="student-eval-intro"><span className="eyebrow">ACADEMIC MATERIALS</span><h2>Useful resources</h2><p>Important departmental guides, templates, and reference documents. {stageScope?'Materials unrelated to your current stage are hidden.':allowedPhases?'Showing common guides and materials relevant to your assigned groups.':'Browse the resources used throughout the thesis process.'}</p></div>
-    <div className="prime-resource-grid student-resource-list">{links.map(item=><a href={item.url} target="_blank" rel="noopener noreferrer" key={item.title}><BookOpen size={20}/><span><b>{item.title}</b><small>{item.detail}</small></span><ArrowUpRight size={16}/></a>)}</div>
+function LiveResources() {
+  return <div className="resources-hub"><div className="resources-hub-banner"><div><span className="eyebrow">RESOURCE LIBRARY</span><h2>Your research toolkit</h2><p>Policies, process maps, examples and seminar materials in one place.</p></div><span className="resources-hub-count"><BookOpen size={19}/> {resourceLinks.length} resources</span></div>
+    <div className="resources-hub-grid">{resourceLinks.map((item,index)=>{
+      const Icon=[GraduationCap,ShieldCheck,ClipboardList,BookOpen][index]||BookOpen;
+      return <a className="resources-hub-card" href={item.url} target="_blank" rel="noopener noreferrer" key={item.title}><span className="resources-hub-icon"><Icon size={22}/></span><span className="resources-hub-card-body"><small>{item.phase?`${item.phase} MATERIAL`:'FOR ALL STAGES'}</small><strong>{item.title}</strong><span>{item.detail}</span></span><span className="resources-hub-arrow"><ArrowUpRight size={17}/></span></a>;
+    })}</div>
   </div>;
 }
 
 function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
-  const [sources,setSources]=useState<Source[]>([]),[releases,setReleases]=useState<Record<string,boolean>>({}),[semester,setSemester]=useState(''),[spreadsheetId,setSpreadsheetId]=useState(''),[phase,setPhase]=useState('P1'),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  const [sources,setSources]=useState<Source[]>([]),[semester,setSemester]=useState(''),[spreadsheetId,setSpreadsheetId]=useState(''),[phase,setPhase]=useState('P1'),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const [registryBusy,setRegistryBusy]=useState(true);
   const [progress,setProgress]=useState<{semester:string;phase:string;processed:number;total:number;complete:boolean;errors:string[]} | null>(null);
   const cancelRef=useRef(false),runningRef=useRef(false);
-  const refresh=()=>{setRegistryBusy(true);return liveRequest<{sources:Source[];releases:Record<string,boolean>}>(token,'registry').then(x=>{setSources(x.sources);setReleases(x.releases);setSemester(current=>current||x.sources[0]?.semester||'');}).catch(e=>setMessage(e.message)).finally(()=>setRegistryBusy(false));};
+  const refresh=()=>{setRegistryBusy(true);return liveRequest<{sources:Source[]}>(token,'registry').then(x=>{setSources(x.sources);setSemester(current=>current||x.sources[0]?.semester||'');}).catch(e=>setMessage(e.message)).finally(()=>setRegistryBusy(false));};
   useEffect(()=>{refresh();return()=>{cancelRef.current=true;};},[token]);
   const act=async(action:string,payload:Record<string,unknown>)=>{
     if(runningRef.current)return;
@@ -141,8 +153,8 @@ function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
         if(!next)throw new Error('Synchronization returned no progress');
         const errors=next.errors||[];
         setProgress({semester:activeSemester,phase:activePhase,processed:next.processed,total:next.total,complete:next.complete,errors});
-        if(next.complete){setMessage('Synchronization completed: '+next.processed+' / '+next.total+' evaluator sheets, '+(next.imported||0)+' feedback records imported. Results remain unpublished.');await refresh();break;}
-        if(errors.length){setMessage('Synchronization paused due to evaluator errors. Resolve them, then restart the import. No partial snapshot was published.');break;}
+        if(next.complete){setMessage('Synchronization completed: '+next.processed+' / '+next.total+' evaluator sheets, '+(next.imported||0)+' feedback records imported. Available comments now appear in the relevant academic views.');await refresh();break;}
+        if(errors.length){setMessage('Synchronization paused due to evaluator errors. Resolve them, then restart the import. The previous index remains intact.');break;}
         if(next.processed<=previous){setMessage('Synchronization stalled. Please review the evaluator sources before retrying.');break;}
         previous=next.processed;
         if(batch===999)setMessage('Synchronization stopped at the safety limit. You may resume.');
@@ -153,10 +165,9 @@ function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
   const pct=progress?(progress.total?Math.round(progress.processed/progress.total*100):100):0;
   return <>
     <section className="card admincard"><h3>Registered semester managers</h3>{registryBusy?<PortalLoading compact label="Loading semester registry" detail="Checking configured evaluation sources…"/>:<div className="source-live-list">{sources.map(s=><div key={s.semester}><b>{s.semester}</b><small>Spreadsheet ending …{s.spreadsheetId.slice(-6)}</small></div>)}</div>}{!readOnly&&<form className="addform" onSubmit={e=>{e.preventDefault();void act('registerSemester',{semester:semester.trim(),spreadsheetId:spreadsheetId.trim()});}}><label>Register or update a semester source</label><div className="formrow"><input placeholder="Fall 2026" value={semester} onChange={e=>setSemester(e.target.value)} required/><input placeholder="Google spreadsheet ID" value={spreadsheetId} onChange={e=>setSpreadsheetId(e.target.value)} required/><button disabled={busy||registryBusy} className="primarybtn">Save source</button></div></form>}</section>
-    <section className="card admincard" style={{marginTop:16}}><h3>Feedback synchronization and publication</h3><p className="smallmuted">{readOnly?'Read-only preview of publication status. Editing is disabled.':'Choose a registered semester and phase. Sync automatically retrieves evaluator sheets in batches; publication remains a separate, explicit action.'}</p>
-      <div className="formrow"><select aria-label="Semester" disabled={busy} value={semester} onChange={e=>setSemester(e.target.value)}>{sources.map(s=><option key={s.semester}>{s.semester}</option>)}</select><select aria-label="Evaluation phase" disabled={busy} value={phase} onChange={e=>setPhase(e.target.value)}><option>P1</option><option>P2</option><option value="Defense">Defense</option></select>{!readOnly&&<><button className="lightbtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>void runSync()}>{busy?'Syncing…':'Sync all batches'}</button>{busy&&<button type="button" className="lightbtn" onClick={()=>{cancelRef.current=true;}}>Pause after current batch</button>}<button className="primarybtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>void act('release',{semester,phase,published:!releases[semester+'|'+phase]})}>{releases[semester+'|'+phase]?'Unpublish':'Publish'} {phase}</button></>}</div>
-      <p className="smallmuted">Currently {releases[semester+'|'+phase]?'published':'unpublished'} for {semester} / {phase}.</p>
-      {progress&&<div className="sync-progress" role="status" aria-live="polite"><div className="sync-progress-heading">{busy&&<span className="sync-spinner" aria-hidden="true"/>}<strong>{progress.complete?'Feedback import complete':'Synchronizing '+progress.phase+' evaluations'}</strong><span>{progress.semester}</span></div><p>Processed: <b>{progress.processed} / {progress.total}</b> evaluator sheets · {pct}%</p><progress max="100" value={pct} aria-label="Feedback synchronization progress"/><small>{progress.complete?'Review before publishing.':'Retrieving evaluator feedback…'}</small>{progress.errors.length>0&&<><ul>{progress.errors.map((err,i)=><li key={i}>{err}</li>)}</ul>{!readOnly&&<button type="button" className="lightbtn" disabled={busy} onClick={()=>{if(window.confirm('Discard the incomplete staged import and restart this semester/phase?')){void liveRequest(token,'restartSync',{semester:progress.semester,phase:progress.phase}).then(()=>{setProgress(null);setMessage('Incomplete staging cleared. You may start sync again.');}).catch(err=>setMessage(String(err instanceof Error?err.message:err)));}}}>Restart incomplete import</button>}</>}</div>}
+    <section className="card admincard" style={{marginTop:16}}><h3>Feedback synchronization</h3><p className="smallmuted">{readOnly?'Read-only preview of registered evaluation sources. Editing is disabled.':'Choose a registered semester and phase. Sync retrieves evaluator sheets in batches; recorded marks and imported comments are shown without a separate publication step.'}</p>
+      <div className="formrow"><select aria-label="Semester" disabled={busy} value={semester} onChange={e=>setSemester(e.target.value)}>{sources.map(s=><option key={s.semester}>{s.semester}</option>)}</select><select aria-label="Evaluation phase" disabled={busy} value={phase} onChange={e=>setPhase(e.target.value)}><option>P1</option><option>P2</option><option value="Defense">Defense</option></select>{!readOnly&&<><button className="lightbtn" disabled={busy||!sources.some(s=>s.semester===semester)} onClick={()=>void runSync()}>{busy?'Syncing…':'Sync all batches'}</button>{busy&&<button type="button" className="lightbtn" onClick={()=>{cancelRef.current=true;}}>Pause after current batch</button>}</>}</div>
+      {progress&&<div className="sync-progress" role="status" aria-live="polite"><div className="sync-progress-heading">{busy&&<span className="sync-spinner" aria-hidden="true"/>}<strong>{progress.complete?'Feedback import complete':'Synchronizing '+progress.phase+' evaluations'}</strong><span>{progress.semester}</span></div><p>Processed: <b>{progress.processed} / {progress.total}</b> evaluator sheets · {pct}%</p><progress max="100" value={pct} aria-label="Feedback synchronization progress"/><small>{progress.complete?'Feedback index updated. Verify the imported results in each role view.':'Retrieving evaluator feedback…'}</small>{progress.errors.length>0&&<><ul>{progress.errors.map((err,i)=><li key={i}>{err}</li>)}</ul>{!readOnly&&<button type="button" className="lightbtn" disabled={busy} onClick={()=>{if(window.confirm('Discard the incomplete staged import and restart this semester/phase?')){void liveRequest(token,'restartSync',{semester:progress.semester,phase:progress.phase}).then(()=>{setProgress(null);setMessage('Incomplete staging cleared. You may start sync again.');}).catch(err=>setMessage(String(err instanceof Error?err.message:err)));}}}>Restart incomplete import</button>}</>}</div>}
     </section>
     {message&&<div className="infobar" role="status">{message}</div>}
   </>;
@@ -190,10 +201,11 @@ export default function LivePortal() {
     return()=>window.clearTimeout(timer);
   },[networkCount]);
   useEffect(()=>{let active=true;liveRequest<Session>('','session').then(verified=>{
-    if(!active)return;clearLiveCache();setToken('session');setSession(verified);
+    if(!active)return;clearLiveCache();setPage(restoredPage(verified));setToken('session');setSession(verified);
   }).catch(()=>{/* No valid browser session; Google sign-in is required. */}).finally(()=>{if(active)setRestoring(false);});return()=>{active=false;};},[]);
   const login=async(idToken:string)=>{
     const verified=await liveRequest<Session>(idToken,'login');
+    try{window.sessionStorage.removeItem(SAVED_PAGE_PREFIX+verified.email);}catch{/* Optional UI preference only. */}
     clearLiveCache();setToken('session');setSession(verified);setData(null);setPreview(null);setPage('dashboard');setError('');
   };
   const logout=async()=>{
@@ -204,6 +216,7 @@ export default function LivePortal() {
     setData(null);setPreview(null);setPreviewDialog(false);setPage('dashboard');setLoggingOut(false);
   };
   const role=preview?.role||session?.role;
+  useEffect(()=>{if(session&&!preview)rememberPage(session,page);},[session,preview,page]);
   const actualPrime=session?.role==='prime_admin';
   const showPrimeControls=actualPrime&&!preview;
   const nav=useMemo(()=>role==='student'?
@@ -224,7 +237,6 @@ export default function LivePortal() {
   if(restoring)return <PortalLoading fullPage label="Restoring your university session" detail="Verifying your secure sign-in and access permissions…"/>;
   if(!session)return <LiveLogin onToken={login}/>;
   const displayData=preview?preview.data:data;
-  const supervisorPhases=role==='supervisor'&&displayData?[...new Set((displayData as SupervisorDashboard).groups.map(group=>studentPhase(group.stage)).filter((phase):phase is 'P1'|'P2'|'Defense'=>!!phase))]:undefined;
   const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrator management',faculty:'Faculty list',announcements:'News & events',profile:'My profile'})[page];
   const exitPreview=()=>{clearLiveCache();setPreview(null);setPage('dashboard');setError('');};
   const awaitingData=dataBusy?<PortalLoading label="Loading your academic workspace" detail="Fetching records assigned to your verified university account…"/>:<section className="card"><p>We could not load your academic records. Please retry.</p><button className="lightbtn" type="button" onClick={()=>setDataAttempt(value=>value+1)}>Retry loading</button></section>;
@@ -237,14 +249,14 @@ export default function LivePortal() {
     </aside>
     {drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}
     <div className="main">
-      <header className="topbar"><button className="menuicon" aria-label="Open menu" onClick={()=>setDrawer(true)}><Menu size={22}/></button><span className="breadcrumbs">Academic Portal <ChevronRight size={13}/>{heading}</span><div className="topright"><span className="live-role">{role?.replace('_',' ')}</span><span className="avatar">{session.email.substring(0,2).toUpperCase()}</span></div></header>
+      <header className="topbar"><button className="menuicon" aria-label="Open menu" onClick={()=>setDrawer(true)}><Menu size={22}/></button><span className="breadcrumbs">Academic Portal <ChevronRight size={13}/>{heading}</span><div className="topright"><span className="live-role">{role?.replace('_',' ')}</span><span className="portal-account-name" title={session.email}>{session.name?.trim()||session.email}</span></div></header>
       <main className="content">
         {preview&&<div className="prime-preview-banner" role="status"><div><Eye size={18}/><span><strong>Read-only role preview · {role?.replace('_',' ')}</strong><small>{preview.email} · You remain signed in as {session.email}</small></span></div><button onClick={exitPreview}>Exit preview</button></div>}
         <div className="pageheading"><div><span className="eyebrow">{role?.replace('_',' ').toUpperCase()}{preview?' · PREVIEW':''}</span><h1>{heading}</h1><p>{preview?`Viewing ${preview.email} · Read-only`:session.email}</p></div><div className="prime-heading-actions">{showPrimeControls&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> View as another role</button>}{preview&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> Change preview</button>}<button className="lightbtn live-logout" disabled={loggingOut} onClick={logout}><LogOut size={15}/> {loggingOut?'Signing out…':'Sign out'}</button></div></div>
         {error&&<div className="live-error" role="alert">{error} <button className="lightbtn" onClick={logout}>Sign in again</button></div>}
         {page==='profile'?<section className="card profilecard"><div className="eyebrow">{preview?'ADMINISTRATIVE PREVIEW':'VERIFIED GOOGLE WORKSPACE ACCOUNT'}</div><h2>{preview?preview.email:session.name}</h2><p>{preview?'Read-only view; not a separate Google login':session.email}</p><p>Role: {role}</p></section>:
-          page==='deadlines'?((role==='student'||role==='supervisor')&&!displayData?awaitingData:<LiveDeadlines token={token} stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined} allowedPhases={supervisorPhases}/> ):
-          page==='resources'?((role==='student'||role==='supervisor')&&!displayData?awaitingData:<LiveResources stageScope={role==='student'?(displayData as StudentDashboard).group.stage:undefined} allowedPhases={supervisorPhases}/> ):
+          page==='deadlines'?<LiveDeadlines token={token} allowSnapshot={role!=='student'&&role!=='supervisor'}/>:
+          page==='resources'?<LiveResources/>:
           role==='student'?displayData?<StudentExperience data={displayData as StudentDashboard} page={page==='evaluations'?'evaluations':'dashboard'} onNavigate={setPage}/>:awaitingData:
           role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard}/>:awaitingData:
           page==='dashboard'?(showPrimeControls?<PrimeOverview token={token} onNavigate={setPage}/>:<LiveSummary token={token}/>):

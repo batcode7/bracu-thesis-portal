@@ -26,3 +26,26 @@
 @media(max-width:900px){.supervisor-group-row{grid-template-columns:minmax(0,1fr) 80px auto}.supervisor-group-primary{grid-column:1/4}.supervisor-group-row>div:nth-child(4){display:none}.supervisor-group-row>div:nth-child(5){grid-column:1/3}.supervisor-group-row>button{grid-column:3;grid-row:3}}
 @media(max-width:700px){.supervisor-stats>.card:last-child{grid-column:auto}}
 @media(max-width:440px){.supervisor-group-row{grid-template-columns:minmax(0,1fr) 1fr}.supervisor-group-primary{grid-column:1/3}.supervisor-group-row>div:nth-child(5){grid-column:1}.supervisor-group-row>button{grid-column:2;grid-row:3}}
+
+/* Rich group details: title, abstract, concise team, roster and phase feedback. */
+.supervisor-detail .modalheader h2{font-size:21px;line-height:1.5;letter-spacing:-.35px;max-width:690px;overflow-wrap:anywhere}
+.supervisor-abstract{border:1px solid #e5edf3;background:#f8fbfd;padding:18px 20px;border-radius:11px;margin-top:18px}
+.supervisor-abstract h3{font-size:12px;margin:0 0 9px;color:#2b5674}
+.supervisor-abstract p{font-size:12px;line-height:1.85;color:#526d81;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.supervisor-modal-id{margin-top:18px}
+.supervisor-modal-summary{margin-top:11px}
+.supervisor-roster-actions{display:flex;align-items:center;gap:13px;flex-wrap:wrap;justify-content:flex-end}
+.supervisor-copy-emails{display:inline-flex;align-items:center;gap:6px;background:#eaf4fa;border:1px solid #d8e8f2;color:#286b96;padding:9px 11px;border-radius:8px;font-size:11px;font-weight:700}
+.supervisor-copy-emails:disabled{opacity:.4;cursor:not-allowed}
+.supervisor-copy-error{font-size:11px;color:#a74b43;margin:0 0 10px}
+.supervisor-feedback-phases{display:grid;gap:13px}
+.supervisor-feedback-phase{border:1px solid #e4ecf2;border-radius:11px;background:#fbfcfd;overflow:hidden}
+.supervisor-feedback-heading{display:flex;gap:9px;align-items:center;padding:13px 16px;border-bottom:1px solid #e6edf2;color:#2a5475;font-size:12px}
+.supervisor-feedback-heading svg{color:#6a99b7}.supervisor-feedback-heading span{margin-left:auto;color:#91a5b5;font-size:10px}
+.supervisor-feedback-card{padding:15px 17px;background:#fff}.supervisor-feedback-card+.supervisor-feedback-card{border-top:1px solid #e7eef3}
+.supervisor-feedback-meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:7px;color:#3a617d;font-size:11px}
+.supervisor-feedback-meta span,.supervisor-feedback-card>small{font-size:10px;color:#879dad}
+.supervisor-feedback-card p{font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;color:#3e5c72;margin:10px 0}
+.supervisor-no-feedback{font-size:11px;color:#92a5b4;margin:0;padding:15px 17px}
+@media(max-width:700px){.supervisor-abstract{padding:15px}.supervisor-section-title{align-items:flex-start}.supervisor-roster-actions{gap:9px}}
+@media(max-width:440px){.supervisor-section-title{flex-direction:column;gap:8px}.supervisor-roster-actions{justify-content:space-between;width:100%}}

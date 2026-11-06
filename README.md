@@ -36,8 +36,8 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 - The updated live Prime Admin area has actual master-level overview metrics, a complete four-person supervision display, faculty directory, useful deadline fallback, animated lookups, and a role-restricted read-only View As feature. See [`docs/PRIME_ADMIN_UPGRADE.md`](docs/PRIME_ADMIN_UPGRADE.md) for the rollout sequence.
 - The official `Faculty Details` directory in the permanent master provides initials, names, designations, status, rooms and university email addresses. No faculty email needs to be guessed from a name.
 - The live landing page includes a public **News & events** section. Regular and Prime Administrators can create and publish announcements in the **News & Events** editor, with drafts, featured notices, archives and links. It uses a separate private Google spreadsheet, not the student master. See [`docs/NEWS_AND_EVENTS.md`](docs/NEWS_AND_EVENTS.md) for setup and publishing.
-- The refreshed **live student workspace** is mobile-oriented, with thesis/group overview, all four assigned supervision slots and verified faculty contact details, separately released evaluation marks and feedback, stage-specific deadlines, a dedicated Resources tab, and bottom navigation on phones. Prime Admin supervisor preview now offers verified faculty selections. See [`docs/STUDENT_EXPERIENCE_UPGRADE.md`](docs/STUDENT_EXPERIENCE_UPGRADE.md).
-- The **live supervisor workspace** now shows unique assigned research groups, a student count and current stage per group, stage/type/search filters, and a read-only group-detail popup with the complete student roster, all supervision slots, and directory-verified faculty contact information. Supervisor deadlines and resources are scoped to assigned active stages; Profile is removed. See [`docs/SUPERVISOR_EXPERIENCE_UPGRADE.md`](docs/SUPERVISOR_EXPERIENCE_UPGRADE.md).
+- The **live student workspace** displays available official marks and indexed panel comments independently, without an academic publication toggle. It retains verified faculty contact details, group membership, P1/P2/Defense deadlines, Resources, and mobile navigation.
+- The **live supervisor workspace** shows unique assigned groups with stage/type/role/search filters. Group details show the title, new abstract, type-specific ID, assigned faculty only, student email-copy action, individual recorded marks, and phase-specific panel feedback for that verified faculty member's groups. Refresh preserves the active portal page. See [`docs/UPGRADE_V8.md`](docs/UPGRADE_V8.md).
 
 ## Intended real data mapping
 
@@ -46,7 +46,7 @@ Permanent **Thesis Master** Google Sheet:
 | Tab | Lookup | Fields |
 | --- | --- | --- |
 | `All student info` | Verified Google email → student | B: Student ID; C: Name; D: ThesisID; E: Email |
-| `Group info` | ThesisID → group | B: ThesisID; C: Type; D: Current Level; E–H: Supervisors; I: Title |
+| `Group info` | ThesisID → group | B: ThesisID; C: Type; D: Current Level; E–H: Supervisors; I: Title; J: Abstract |
 | `Marks` | Student ID → marks | H: P1; I: P2; J–L: Panel; M: Supervisor; N: Penalty; O: Total; P: Grade point; Q: Letter grade; R: Final Check |
 | `Faculty Details` | Verified university email → faculty | A: Initial; B: Name; C: Designation; D: Status; E: Room; F: Email |
 
@@ -58,7 +58,7 @@ Semester-wise panel managers link to **individual judge spreadsheets** where com
 2. Verify Google ID tokens **server-side** (issuer, audience, signature, expiration, email verification, Workspace hosted domain). Never trust client-selected roles or requested student IDs.
 3. Enforce row-level authorization for every request: students access only their own records; supervisors access only groups assigned to their verified faculty email; administrators see permitted wider records.
 4. Pin `partha.bhoumik@bracu.ac.bd` as `prime_admin` in trusted server configuration. Only this principal can create/revoke normal administrators; a Sheets edit must not grant root privileges.
-5. Hide unpublished marks and comments together. Treat blank scores differently from zero. Require nonblank comments for each published evaluation.
+5. Verify that students see **only their own** official marks and indexed comments; supervisors see only records for groups independently matched to their verified faculty identity. Academic publication gating has been removed by the portal owner's request; even partially recorded results are visible immediately. The university must approve that visibility policy before broad deployment.
 6. Keep Google Sheets credentials and administrative keys only on the backend, never in `VITE_` frontend variables or downloadable bundles.
 7. Connect Google Apps Script through a trusted backend with authenticated requests and proper CORS. Avoid a publicly readable owner-executed Apps Script endpoint that trusts an email string from the client.
 8. Comment columns have been checked against representative Summer 2026 judge workbooks; confirm the evaluation-attempt policy, multi-judge feedback policy, and grading-release rules before integration.

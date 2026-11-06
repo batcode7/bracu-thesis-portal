@@ -1,5 +1,7 @@
 # Verified Google Sheets schema — 5 November 2026
 
+**v8 addendum:** `Thesis Master` → `Group info` column J now holds the abstract, adjacent to title column I. Academic mark/comment publication gating has been intentionally removed; see [`UPGRADE_V8.md`](UPGRADE_V8.md).
+
 This is a **schema inspection**, not a live data connection. The connected Google Drive account was used to inspect the real `Thesis Master` and `2026 Summer Thesis Panel Manager`, plus two representative faculty evaluator spreadsheets for each evaluation phase. No student records have been imported into the frontend.
 
 ## Permanent Thesis Master

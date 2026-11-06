@@ -1,5 +1,7 @@
 # Prime Admin UI refresh — rollout notes
 
+**Historical documentation:** The academic Publish/Unpublish control described in older notes has been removed by v8. See [`UPGRADE_V8.md`](UPGRADE_V8.md); News & Events publication is unaffected.
+
 This update modifies the live Cloudflare Pages frontend **and** the owner-executed Google Apps Script. Update both sides; pushing only the frontend will leave the new `overview`, `facultyList`, and `preview` actions unavailable.
 
 ## New Prime Admin screens

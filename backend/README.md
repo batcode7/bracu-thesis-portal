@@ -61,20 +61,20 @@ Do not place `BRIDGE_SECRET` in source files, GitHub, build logs or any `VITE_` 
 3. Under **Semester Sources**, register each semester's panel-manager Spreadsheet ID. Historical IDs remain in the registry, and the API prevents an existing semester's source from being overwritten.
 4. For each semester and phase, use **Sync all batches**; the interface automatically repeats calls until complete, interrupted or errored. Apps Script processes up to 8 evaluator workbooks per invocation to fit its execution limits.
 5. If one or more judge Sheets are inaccessible, grant the Apps Script owner access and select **Restart sync** before retrying. Incomplete/failed staged snapshots never replace the last complete index.
-6. Review and fix blank individual marks or comments in judge Sheets. Then sync again and **Publish** each semester/phase. The backend blocks publication when an indexed evaluator row lacks a mark or mandatory comment. Every completed re-sync unpublishes that phase pending review; individual student scores stay hidden until there is valid feedback and master marks are present.
+6. Review the source marks and faculty comments before synchronizing. There is **no separate academic Publish step**: official marks in the permanent master and successfully indexed comments become visible independently to the verified student and authorized supervising faculty. This is an intentionally changed visibility policy; obtain university approval before giving students access.
 7. Repeat registration/synchronization each semester. A student can have P1 in Spring 2025, P2 in Summer 2026 and defense in Fall 2026, each from its original source.
 
 ### Important grading caveat
 
-For P1/P2/Defense, the **official numeric scores** displayed to students come from the permanent master `Marks` tab; **comments** and semester metadata come from the individual judge workbooks via the indexed copy. Their identity is joined by both thesis/group ID and individual email/student ID. The supervisor sees recorded-phase flags from master marks but not all raw marks. We never treat a blank mark as zero.
+For P1/P2/Defense, the **official numeric scores** displayed to students come from the permanent master `Marks` tab; **comments** and semester metadata come from the individual judge workbooks via the indexed copy. Their identity is joined by both thesis/group ID and individual email/student ID. A verified supervisor sees actual phase marks for assigned students and indexed comments for those groups only. Blank marks are never treated as zero. `Group info!J` is the abstract, immediately beside the title in column I.
 
-The prototype currently assumes one official score in `Marks` for each phase per student, even if there are multiple evaluator rows or a repeat attempt. Before production, test a few real repeat/deferred cases with the coordinator. If actual records contain *multiple attempt-specific official scores*, extend the master model to store the score per attempt and semester before publishing those records.
+The prototype currently assumes one official score in `Marks` for each phase per student, even if there are multiple evaluator rows or a repeat attempt. Before production, test a few real repeat/deferred cases with the coordinator. If actual records contain *multiple attempt-specific official scores*, extend the master model to store the score per attempt and semester before making those results available.
 
 ### Administrator summary semantics
 
-Counts are **unique students and unique groups with released, synchronized, marked-and-commented evaluator records** for each semester and phase. These are not counts of all enrolled students in a semester (the source tables do not define enrollment by semester). The source manager's `P1_Marks` tab is not used; it contains formula errors in the inspected workbook.
+Counts are **unique students and groups with indexed evaluator records and at least one associated official mark or comment** for each semester and phase. Master-only marks have no semester attribution. These are not counts of all enrolled students in a semester (the source tables do not define enrollment by semester). The source manager's `P1_Marks` tab is not used; it contains formula errors in the inspected workbook.
 
-The refreshed **Prime Admin Overview** also displays global master-level totals (validated students, research groups, and recorded phase marks). These are labeled separately and must not be interpreted as semester-specific enrollments or published results.
+The refreshed **Prime Admin Overview** also displays global master-level totals (validated students, research groups, and recorded phase marks). These are labeled separately and must not be interpreted as semester-specific enrollments.
 
 ### Prime Admin read-only role preview
 
@@ -90,7 +90,7 @@ The refreshed **Prime Admin Overview** also displays global master-level totals 
 - Test one mapped student, one supervisor and one admin using separate verified BRAC accounts; confirm a student cannot submit another student's ID to retrieve records.
 - Attempt to sign in with consumer Gmail; expect a refusal.
 - Test a faculty account with no mapping; expect a refusal, not all students.
-- Test an empty faculty comment, unreleased phase, and an inaccessible judge workbook; none must reveal unpublished marks or feedback.
+- Test a blank mark, a valid zero mark, comments without marks, and an inaccessible judge workbook. Verify that only the actual student and assigned supervisor can view their respective data; an incomplete sync must preserve the last complete indexed snapshot.
 - Test a student with P1, P2 and Defense in three **different semesters**.
 - Configure Google's authorized JavaScript origins to include the actual Pages domain. Pages Functions use the request's own origin for their browser-origin checks.
 
