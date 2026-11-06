@@ -26,7 +26,6 @@ export function PortalWelcome({ children, isDemo = false }: { children: ReactNod
         <h2>Welcome to your portal</h2>
         <p>Continue with your BRAC University Google Workspace account.</p>
         <div className="welcome-signin-slot">{children}</div>
-        <div className="welcome-domain-note"><span>@bracu.ac.bd</span><span>@g.bracu.ac.bd</span></div>
         <div className="welcome-auth-footer"><LockKeyhole size={14}/> {isDemo ? 'This preview uses fictional records only.' : 'Your access is verified for every request.'}</div>
       </section>
     </main>

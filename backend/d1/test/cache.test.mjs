@@ -107,7 +107,7 @@ test('D1 respects verified student and faculty scopes and preserves master comme
     assert.equal((await readD1Action('resources',{email:'b@g.bracu.ac.bd'},env)).data.items.length,1);
     await assert.rejects(readD1Action('student',{email:'faculty@bracu.ac.bd'},env),/Student record/);
     await assert.rejects(readD1Action('supervisor',{email:'a@g.bracu.ac.bd'},env),/Faculty record/);
-    await assert.rejects(readD1Action('student',{email:'unknown@g.bracu.ac.bd'},env),/not authorized/);
+    await assert.rejects(readD1Action('student',{email:'unknown@g.bracu.ac.bd'},env),/Not registered for thesis yet/);
     assert.equal(await readD1Action('search',{email:'prime@bracu.ac.bd'},env),null);
   }finally{db.close();}
 });

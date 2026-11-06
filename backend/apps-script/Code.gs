@@ -691,7 +691,8 @@ function request_(body) {
     var refreshed=Date.parse(prop_('FACULTY_AUTO_UPDATED',''))||0;
     if(Date.now()-refreshed>5*60*1000){try{refreshFacultyDirectory_(false);role=role_(email,studentRows);}catch(_){/* Refuse unknown users if the directory is unavailable. */}}
   }
-  assert_(role,'Account is not authorized');
+  var listedStudent=studentRows.some(function(s){return s.email===email||s.aliases.indexOf(email)>=0;});
+  assert_(role,email.endsWith('@g.bracu.ac.bd')&&!listedStudent?'Not registered for thesis yet':'Account is not authorized');
   if(action==='session'){
     var account=facultyDirectory_().filter(function(f){return f.email===email;})[0];
     return {role:role,roles:roles_(email,studentRows),email:email,name:principal.name||email,

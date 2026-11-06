@@ -1,5 +1,6 @@
 /* Student-first experience: information cards adapt to phone widths without tables. */
 .student-stack{display:grid;gap:22px;min-width:0}
+.student-section,.student-members,.student-members .tableoverflow{min-width:0;max-width:100%}
 .student-hero{padding:28px 30px;background:linear-gradient(125deg,#fff 55%,#f1f7fb 100%)}
 .student-hero-top{display:flex;justify-content:space-between;align-items:start;gap:14px}
 .student-hero-top p{font-size:12px;color:#7890a4;margin:8px 0 0}
@@ -58,4 +59,4 @@
 @media(prefers-reduced-motion:reduce){.resources-hub-card{transition:none}}
 
 .student-member-table{width:100%;border-collapse:collapse;text-align:left;font-size:12px;color:#44657d}.student-member-table th{padding:14px 12px;color:#8ea0ad;font-size:10px;text-transform:uppercase;letter-spacing:.3px}.student-member-table td{padding:15px 12px;border-top:1px solid #e9f0f4;overflow-wrap:anywhere}.student-member-table td strong{color:#2b5571}.student-member-table .student-you{display:inline-block;margin-left:8px}
-@media(max-width:560px){.student-member-table thead{display:none}.student-member-table,.student-member-table tbody,.student-member-table tr,.student-member-table td{display:block;width:100%}.student-member-table tr{padding:12px 0;border-top:1px solid #e9f0f4}.student-member-table td{border:0;padding:5px 2px}.student-member-table td:before{display:inline-block;min-width:94px;font-size:10px;font-weight:700;color:#8ca2b2}.student-member-table td:nth-child(1):before{content:'Name'}.student-member-table td:nth-child(2):before{content:'Student ID'}.student-member-table td:nth-child(3):before{content:'Email'}}
+@media(max-width:560px){.student-member-table{min-width:0;max-width:100%}.student-member-table thead{display:none}.student-member-table,.student-member-table tbody,.student-member-table tr,.student-member-table td{display:block;width:100%}.student-member-table tr{padding:12px 0;border-top:1px solid #e9f0f4}.student-member-table td{border:0;padding:5px 2px}.student-member-table td:before{display:inline-block;min-width:94px;font-size:10px;font-weight:700;color:#8ca2b2}.student-member-table td:nth-child(1):before{content:'Name'}.student-member-table td:nth-child(2):before{content:'Student ID'}.student-member-table td:nth-child(3):before{content:'Email'}}

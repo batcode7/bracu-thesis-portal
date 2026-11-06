@@ -26,6 +26,13 @@ function Progress({ score, done, label, maximum }: {score?:number|null;done?:boo
   return <span className={`supervisor-record-pill ${available||done?'recorded':''}`}>{label}: {available?`${score} / ${maximum}`:done?'Recorded':'—'}</span>;
 }
 
+function visiblePhases(stage:string):Array<'P1'|'P2'|'Defense'> {
+  const all:Array<'P1'|'P2'|'Defense'>=['P1','P2','Defense'];
+  if(/(complet|finished|graduat)/i.test(stage))return all;
+  const current=studentPhase(stage);
+  return current?all.slice(0,all.indexOf(current)+1):[];
+}
+
 function GroupDetails({group,students,onClose}:{group:GroupRecord;students:AssignedStudent[];onClose:()=>void}) {
   const [copied,setCopied]=useState(false),[emailsCopied,setEmailsCopied]=useState(false),[copyError,setCopyError]=useState('');
   useEffect(()=>{
@@ -40,6 +47,7 @@ function GroupDetails({group,students,onClose}:{group:GroupRecord;students:Assig
   ].filter(item=>!!item.name?.trim()&&!/^(?:not assigned|n\/?a|none|-+)$/i.test(item.name.trim()));
   const studentEmails=[...new Set(students.map(student=>student.email?.trim()).filter((address):address is string=>!!address).map(address=>address.toLowerCase()))];
   const feedback=group.feedback||[];
+  const shownPhases=visiblePhases(group.stage);
   return <div className="modaloverlay" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
     <section className="modalbox supervisor-detail" role="dialog" aria-modal="true" aria-labelledby="supervisor-dialog-heading">
       <div className="modalheader"><div><span className="eyebrow">ASSIGNED RESEARCH GROUP</span><h2 id="supervisor-dialog-heading">{group.title||'Research title not listed'}</h2></div><button type="button" className="iconbtn" aria-label="Close group details" onClick={onClose}><X size={20}/></button></div>
@@ -52,10 +60,11 @@ function GroupDetails({group,students,onClose}:{group:GroupRecord;students:Assig
       })}</div></div>
       <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Group students</h3><div className="supervisor-roster-actions"><small>{students.length} {students.length===1?'student':'students'}</small><button className="supervisor-copy-emails" type="button" disabled={!studentEmails.length} onClick={async()=>{try{await navigator.clipboard.writeText(studentEmails.join(', '));setEmailsCopied(true);setCopyError('');window.setTimeout(()=>setEmailsCopied(false),1800);}catch{setCopyError('Could not copy the email list. Check browser clipboard permissions.');}}}>{emailsCopied?<Check size={14}/>:<ClipboardCopy size={14}/>} {emailsCopied?'Emails copied':'Copy all emails'}</button></div></div>
         {copyError&&<p className="supervisor-copy-error" role="alert">{copyError}</p>}
-        {students.length?<div className="supervisor-modal-students">{students.map(student=><article key={student.id} className="supervisor-student-card"><div className="supervisor-student-head"><span className="supervisor-student-avatar"><Users size={17}/></span><div><strong>{student.name}</strong><small>Student ID · {student.id}</small></div></div>{student.email&&<div className="supervisor-student-email"><Mail size={14}/><span>{student.email}</span></div>}<div className="supervisor-student-records"><Progress score={student.marks?.p1} done={student.progress?.p1} label="P1" maximum={5}/><Progress score={student.marks?.p2} done={student.progress?.p2} label="P2" maximum={10}/><Progress score={student.marks?.defense} done={student.progress?.defense} label="Defense" maximum={30}/>{student.marks?.supervisor!==undefined&&student.marks?.supervisor!==null&&<Progress score={student.marks.supervisor} label="Supervisor" maximum={55}/>}</div></article>)}</div>:<p className="supervisor-no-members">No students are currently linked to this group in the master records.</p>}
+        {students.length?<div className="supervisor-modal-students">{students.map(student=><article key={student.id} className="supervisor-student-card"><div className="supervisor-student-head"><span className="supervisor-student-avatar"><Users size={17}/></span><div><strong>{student.name}</strong><small>Student ID · {student.id}</small></div></div>{student.email&&<div className="supervisor-student-email"><Mail size={14}/><span>{student.email}</span></div>}{shownPhases.length>0&&<div className="supervisor-student-records">{shownPhases.includes('P1')&&<Progress score={student.marks?.p1} done={student.progress?.p1} label="P1" maximum={5}/>} {shownPhases.includes('P2')&&<Progress score={student.marks?.p2} done={student.progress?.p2} label="P2" maximum={10}/>} {shownPhases.includes('Defense')&&<Progress score={student.marks?.defense} done={student.progress?.defense} label="Defense" maximum={30}/>} {shownPhases.includes('Defense')&&student.marks?.supervisor!==undefined&&student.marks?.supervisor!==null&&<Progress score={student.marks.supervisor} label="Supervisor" maximum={55}/>}</div>}</article>)}</div>:<p className="supervisor-no-members">No students are currently linked to this group in the master records.</p>}
       </div>
-      <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Panel feedback</h3><small>From Thesis Master · Group info</small></div>
-        <div className="supervisor-feedback-phases">{(['P1','P2','Defense'] as const).map(phase=>{
+      <div className="supervisor-detail-section"><div className="supervisor-section-title"><h3>Panel feedback</h3></div>
+        {shownPhases.length===0&&<p className="supervisor-no-feedback">No active evaluation stage for this group.</p>}
+        <div className="supervisor-feedback-phases">{shownPhases.map(phase=>{
           const phaseComments=feedback.filter(item=>item.phase===phase);
           return <section className="supervisor-feedback-phase" key={phase}><div className="supervisor-feedback-heading"><MessageSquareText size={16}/><strong>{phase==='Defense'?'Final Defense':phase}</strong><span>{phaseComments.length} {phaseComments.length===1?'comment':'comments'}</span></div>
             {phaseComments.length?phaseComments.map((item,index)=><article className="supervisor-feedback-card" key={`${phase}-${item.semester}-${index}`}><div className="supervisor-feedback-meta"><strong>{item.evaluator}</strong><span>{item.semester}</span></div><p>{item.comment}</p>{item.students.length>0&&<small>For: {item.students.join(', ')}</small>}</article>):<p className="supervisor-no-feedback">No Comments. Please reach out to your respective panel members for feedback.</p>}

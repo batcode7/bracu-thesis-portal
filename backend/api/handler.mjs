@@ -120,7 +120,7 @@ async function forwardToAppsScript(action, payload, principal, env) {
   const body = await response.text();
   if (body.length > 1500000) {const error=new Error('Data response too large');error.status=502;throw error;}
   let decoded;try{decoded=JSON.parse(body);}catch(_){const error=new Error('Invalid Google data response');error.status=502;throw error;}
-  if (decoded.ok !== true) {const error=new Error(decoded.error||'Data request denied');error.status=/not authorized|identity|required|not matched/i.test(error.message)?403:400;throw error;}
+  if (decoded.ok !== true) {const error=new Error(decoded.error||'Data request denied');error.status=/not authorized|not registered|identity|required|not matched/i.test(error.message)?403:400;throw error;}
   return decoded.data;
 }
 

@@ -36,6 +36,7 @@ globalThis.fetch = async (url,options) => {
     }
     assert.equal(body.principal.email,'student@g.bracu.ac.bd');
     assert.equal(body.principal.role,undefined);
+    if(body.principal.sub==='unregistered-google-sub')return Response.json({ok:false,error:'Not registered for thesis yet'});
     return Response.json({ok:true,data:{role:'student',email:body.principal.email}});
   }
   throw new Error('Unexpected URL '+target);
@@ -46,6 +47,12 @@ test('accepts a correctly signed university identity and forwards only trusted p
   const response=await portalWorker.fetch(request(await sign()),env);
   assert.equal(response.status,200);
   assert.deepEqual((await response.json()).data,{role:'student',email:'student@g.bracu.ac.bd'});
+});
+test('a verified but unregistered student receives a clear denial without a login cookie',async()=>{
+  const response=await portalWorker.fetch(request(await sign(payload({sub:'unregistered-google-sub'})),env.APP_ORIGIN,'login'),env);
+  assert.equal(response.status,403);
+  assert.equal((await response.json()).error,'Not registered for thesis yet');
+  assert.equal(response.headers.has('set-cookie'),false);
 });
 test('secure HttpOnly session restores identity after refresh and is cleared on sign-out',async()=>{
   const signed=await sign();

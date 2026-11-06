@@ -94,7 +94,7 @@ export async function readD1Action(action,principal,env){
   ]);
   const isAdmin=!!(admin||legacyAdmin);
   const roles=rolesFor(isAdmin,faculty,alias);
-  if(!roles.length)fail(403,'Account is not authorized');
+  if(!roles.length)fail(403,email.endsWith('@g.bracu.ac.bd')?'Not registered for thesis yet':'Account is not authorized');
   if(action==='session')return {handled:true,data:{role:roles[0],roles,email,
     name:String(principal.name||faculty?.name||email).slice(0,120),
     designation:faculty?.designation||'',room:faculty?.room||''}};

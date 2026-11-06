@@ -220,6 +220,7 @@ test('blank indexed evaluator comments cannot override a master comment or conce
 });
 test('unregistered Workspace emails and consumer Gmail do not become portal users',()=>{
   assert.throws(()=>run('unknown@bracu.ac.bd','session'),/not authorized/);
+  assert.throws(()=>run('unregistered@g.bracu.ac.bd','session'),/Not registered for thesis yet/);
   assert.throws(()=>run('first@gmail.com','session'),/verified BRAC identity/);
 });
 test('a shared email never authenticates to an arbitrary student ID',()=>{
