@@ -4,7 +4,9 @@ import { GOOGLE_CLIENT_ID, liveRequest, cachedLiveRequest, clearLiveCache, inval
 import PortalLoading from './PortalLoading';
 import { PortalWelcome } from './PortalWelcome';
 import { DeadlineBoard } from './DeadlineBoard';
-import { PrimeFacultyList, PrimeOverview, PrimePreviewDialog, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
+import { PrimeFacultyList, PrimePreviewPage, PrimeSearch, type RolePreview } from './PrimeAdminExperience';
+import SimpleOverview from './SimpleOverview';
+import { Pagination, type PageSize } from './Pagination';
 import { BrandLogo } from './BrandLogo';
 import { AdminAnnouncements } from './Announcements';
 import StudentExperience from './StudentExperience';
@@ -12,7 +14,7 @@ import SupervisorExperience from './SupervisorExperience';
 import type { Evaluation } from './data';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 
-type LivePage = 'dashboard' | 'evaluations' | 'students' | 'search' | 'deadlines' | 'resources' | 'sources' | 'admins' | 'faculty' | 'announcements';
+type LivePage = 'dashboard' | 'evaluations' | 'students' | 'search' | 'rolepreview' | 'deadlines' | 'resources' | 'sources' | 'admins' | 'faculty' | 'announcements';
 type DirectoryRow = { student: {id:string;name:string;email:string;thesisId:string}; group: {id:string;title:string;type:string;stage:string;primarySupervisor:string;secondarySupervisor?:string} };
 type Detail = DirectoryRow & {members:Array<{id:string;name:string;email:string}>;marks:Record<string,number|string|null>;evaluations:Evaluation[]};
 type Completion = { students:number; groups:number };
@@ -24,7 +26,7 @@ const SAVED_PAGE_PREFIX='bracu-thesis-portal-page:';
 function allowedPageForSession(session:Session,page:string):page is LivePage {
   if(session.role==='student')return ['dashboard','evaluations','deadlines','resources'].includes(page);
   if(session.role==='supervisor')return ['dashboard','deadlines','resources'].includes(page);
-  return ['dashboard','search','sources','deadlines','resources','announcements','faculty','admins'].includes(page);
+  return ['dashboard','search','rolepreview','sources','deadlines','resources','announcements','faculty','admins'].includes(page);
 }
 function restoredPage(session:Session):LivePage {
   try{const stored=window.sessionStorage.getItem(SAVED_PAGE_PREFIX+session.email)||'';return allowedPageForSession(session,stored)?stored:'dashboard';}
@@ -54,7 +56,7 @@ function LiveLogin({onToken}:{onToken:(token:string)=>Promise<void>}) {
     loginPending.current=true;setSigningIn(true);setError('');
     onToken(response.credential).catch(e=>setError(e.message||'Sign-in failed')).finally(()=>{loginPending.current=false;setSigningIn(false);});
   },auto_select:false});window.google.accounts.id.renderButton(buttonElement.current,{theme:'outline',size:'large',shape:'rectangular',text:'signin_with',width:300});},[loaded,onToken]);
-  return <PortalWelcome><div className="live-login-control" aria-busy={signingIn}>{configured?<div ref={buttonElement} style={{pointerEvents:signingIn?'none':undefined,opacity:signingIn?.55:1}}/>:<div className="live-config-alert"><LockKeyhole size={18}/> Google Workspace authentication is not configured. The portal remains locked until the administrator completes deployment.</div>}</div>{configured&&!loaded&&!error&&<PortalLoading compact label="Preparing Google sign-in" detail="Connecting to your university authentication provider…"/>}{signingIn&&<PortalLoading compact label="Verifying your BRAC University account" detail="Checking your role and creating a secure session…"/>}{error&&<div className="live-error" role="alert">{error}</div>}</PortalWelcome>;
+  return <PortalWelcome><div className="live-login-control" aria-busy={signingIn}>{configured?<div ref={buttonElement} style={{pointerEvents:signingIn?'none':undefined,opacity:signingIn?.55:1}}/>:<div className="live-config-alert"><LockKeyhole size={18}/> Google Workspace authentication is not configured. The portal remains locked until the administrator completes deployment.</div>}</div>{configured&&!loaded&&!error&&<PortalLoading compact label="Preparing Google sign-in" detail="Connecting to your university authentication provider…"/>}{signingIn&&<div className="welcome-login-progress" role="status" aria-live="polite"><span className="welcome-login-orbit"><ShieldCheck size={21}/></span><div><strong>Verifying your university account</strong><small>Securing your session and checking your permissions…</small></div><span className="welcome-login-progress-track"><span/></span></div>}{error&&<div className="live-error" role="alert">{error}</div>}</PortalWelcome>;
 }
 
 const roleLabel = (value:string) => ({admin:'Administrator',supervisor:'Supervisor / Faculty',student:'Student'} as Record<string,string>)[value]||value;
@@ -83,14 +85,15 @@ function AccountMenu({session,role,onSwitch,onSignOut,loggingOut}:{session:Sessi
 
 function LiveSearch({token}:{token:string}) {
   const [offset,setOffset]=useState(0),[total,setTotal]=useState(0);
+  const [pageSize,setPageSize]=useState<PageSize>(10);
   const [q,setQ]=useState(''),[stage,setStage]=useState('All stages'),[kind,setKind]=useState('All types');
   const [rows,setRows]=useState<DirectoryRow[]>([]),[selected,setSelected]=useState<Detail|null>(null);
   const [busy,setBusy]=useState(true),[detailBusy,setDetailBusy]=useState(false),[error,setError]=useState('');
   const requestId=useRef(0);
-  const run=async(nextOffset=0)=>{
+  const run=async(nextOffset=0,limit:PageSize=pageSize)=>{
     const request=++requestId.current;setBusy(true);setError('');
     try{
-      const result=await liveRequest<{rows:DirectoryRow[];total:number;offset:number}>(token,'search',{q,stage,type:kind,offset:nextOffset});
+      const result=await liveRequest<{rows:DirectoryRow[];total:number;offset:number}>(token,'search',{q,stage,type:kind,offset:nextOffset,limit});
       if(request===requestId.current){setRows(result.rows);setTotal(result.total);setOffset(result.offset);}
     }catch(e){if(request===requestId.current){setError(String(e instanceof Error?e.message:e));setRows([]);}}
     finally{if(request===requestId.current)setBusy(false);}
@@ -107,10 +110,10 @@ function LiveSearch({token}:{token:string}) {
       <div className="query-filters"><select aria-label="Current stage" value={stage} onChange={e=>setStage(e.target.value)}>{['All stages','Pre-Thesis 1','Pre-Thesis 2','Final Thesis','Completed','Deferred'].map(x=><option key={x}>{x}</option>)}</select><select aria-label="Research category" value={kind} onChange={e=>setKind(e.target.value)}>{['All types','Thesis','Project','Internship'].map(x=><option key={x}>{x}</option>)}</select><button className="primarybtn" onClick={()=>void run()} disabled={busy}>{busy?'Searching…':'Search'}</button></div>
     </section>
     {error&&<div className="live-error" role="alert">{error}</div>}
-    <div className="sectionheading"><h3>Results</h3><span>{total} matching students · 100 per page</span></div>
+    <div className="sectionheading"><h3>Results</h3><span>{total} matching students</span></div>
     {busy?<PortalLoading label="Searching academic records" detail="Checking registered students and thesis groups…"/>:
       <section className="card admin-results"><div className="tableoverflow"><table><thead><tr><th>Student</th><th>Group</th><th>Supervisor</th><th>Stage</th><th></th></tr></thead><tbody>{rows.map(({student,group})=><tr key={student.id}><td><b>{student.name}</b><small>{student.id}</small></td><td><b>{group.id}</b><small>{group.type}</small></td><td>{group.primarySupervisor}</td><td>{group.stage}</td><td><button className="lightbtn" onClick={()=>void detail(student.id)} disabled={detailBusy}>Details</button></td></tr>)}{!rows.length&&<tr><td colSpan={5} className="noresults">No records found.</td></tr>}</tbody></table></div></section>}
-    {total>100&&<div className="formrow" role="navigation" aria-label="Search pages"><button className="lightbtn" disabled={busy||offset===0} onClick={()=>void run(Math.max(0,offset-100))}>Previous</button><span>Page {Math.floor(offset/100)+1} of {Math.ceil(total/100)}</span><button className="lightbtn" disabled={busy||offset+100>=total} onClick={()=>void run(offset+100)}>Next</button></div>}
+    {!busy&&<Pagination label="Student search" total={total} page={Math.floor(offset/pageSize)} pageSize={pageSize} disabled={busy} onPageChange={page=>void run(page*pageSize)} onPageSizeChange={size=>{setPageSize(size);void run(0,size);}}/>}
     {detailBusy&&<div className="modaloverlay" role="presentation"><section className="modalbox" role="status"><PortalLoading label="Opening student details" detail="Retrieving the verified group record…"/></section></div>}
     {selected&&!detailBusy&&<div className="modaloverlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setSelected(null);}}><section className="modalbox admin-detail" role="dialog" aria-modal="true" aria-label="Detailed student record"><div className="modalheader"><div><div className="eyebrow">STUDENT RECORD</div><h2>{selected.student.name}</h2></div><button className="iconbtn" aria-label="Close" onClick={()=>setSelected(null)}><X size={18}/></button></div><div className="detail-pairs"><div><small>Student ID</small><b>{selected.student.id}</b></div><div><small>Thesis / project ID</small><b>{selected.group.id}</b></div><div><small>Email</small><b>{selected.student.email}</b></div><div><small>Stage</small><b>{selected.group.stage}</b></div><div><small>Supervisor</small><b>{selected.group.primarySupervisor}</b></div><div><small>Title</small><b>{selected.group.title}</b></div></div><div className="detail-section"><h3>Group members</h3><div className="memberlist">{selected.members.map(member=><div key={member.id}><Users size={15}/><span>{member.name}</span><small>{member.id}</small></div>)}</div></div><div className="detail-section"><h3>Recorded marks</h3><div className="mark-summary">{(['p1','p2','defense','supervisor'] as const).map(field=><div key={field}><span>{field.toUpperCase()}</span><strong>{selected.marks?.[field]??'Pending'}</strong></div>)}</div></div><div className="detail-section"><h3>Panel comments from Thesis Master</h3>{selected.evaluations.filter(item=>['P1','P2','Defense'].includes(item.phase)).map(item=><div key={item.id} className="admin-phase-comment"><strong>{item.phase==='Defense'?'Defense':item.phase}</strong>{item.semester!=='Semester not recorded'&&<small>{item.semester}</small>}<p>{item.comment?.trim()||'No comments recorded for this phase.'}</p></div>)}</div></section></div>}
   </>;
@@ -145,17 +148,22 @@ function LiveDeadlines({token,studentStage}:{token:string;studentStage?:string})
 
 function LiveResources({token}:{token:string}) {
   const [items,setItems]=useState<Resource[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);
+  const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
   useEffect(()=>{let active=true;setLoading(true);cachedLiveRequest<{items:Resource[]}>(token,'resources',{},60000).then(result=>{if(active){setItems(result.items);setError('');}}).catch(e=>{if(active)setError(e.message||String(e));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[token,revision]);
   const safe=(raw:string)=>{try{const url=new URL(raw);return url.protocol==='https:'?url.href:'';}catch{return '';}};
-  return <div className="resources-hub"><div className="resources-hub-banner"><div><span className="eyebrow">RESOURCE LIBRARY</span><h2>Departmental resources</h2><p>Current guides, forms, templates and seminar material from the university source.</p></div><span className="resources-hub-count"><BookOpen size={19}/> {items.length} resources</span></div>
-    <div className="resources-hub-toolbar"><span>Links are read from the university's current resource list.</span><button className="lightbtn" onClick={()=>{invalidateLiveCache('resources');setRevision(x=>x+1);}} disabled={loading}>Refresh</button></div>
+  const links=items.filter(item=>safe(item.url)).length;
+  const pageItems=items.slice(page*pageSize,(page+1)*pageSize);
+  const phaseName=(phase:string)=>phase==='P1'?'Pre-Thesis 1':phase==='P2'?'Pre-Thesis 2':phase==='Defense'?'Final Thesis':'General';
+  return <div className="resources-library"><div className="resources-library-heading"><div><span className="eyebrow">RESOURCE LIBRARY</span><h2>Departmental resources</h2><p>Official templates, guidelines and reference materials.</p></div><button className="lightbtn" onClick={()=>{invalidateLiveCache('resources');setRevision(x=>x+1);}} disabled={loading}>Refresh</button></div>
     {error&&<div className="live-error" role="alert">Unable to read live resources: {error}</div>}
-    {loading?<PortalLoading label="Loading departmental resources" detail="Retrieving updated documents and links…"/>:<div className="resources-hub-grid">{items.map((item,index)=>{
-      const Icon=[GraduationCap,ShieldCheck,ClipboardList,BookOpen][index]||BookOpen;
-      const url=safe(item.url);
-      const content=<><span className="resources-hub-icon"><Icon size={22}/></span><span className="resources-hub-card-body"><small>{item.phase==='P1'?'PRE-THESIS 1':item.phase==='P2'?'PRE-THESIS 2':item.phase==='Defense'?'FINAL DEFENSE':'FOR ALL STAGES'}</small><strong>{item.title}</strong><span>{item.detail}</span>{!url&&<span className="resource-unavailable">No accessible link is recorded in the source.</span>}</span><span className="resources-hub-arrow"><ArrowUpRight size={17}/></span></>;
-      return url?<a className="resources-hub-card" href={url} target="_blank" rel="noopener noreferrer" key={item.id}>{content}</a>:<div className="resources-hub-card resource-without-link" key={item.id}>{content}</div>;
-    })}{!items.length&&!error&&<p>No resources are currently listed in the university source.</p>}</div>}
+    {loading?<PortalLoading label="Loading departmental resources" detail="Retrieving updated documents and links…"/>:<section className="card resources-library-panel">
+      <div className="resources-library-meta"><strong>{items.length} resources</strong><span>{links} links available{links<items.length?` · ${items.length-links} without a source link`:''}</span></div>
+      <div className="resources-library-list">{pageItems.map(item=>{
+        const url=safe(item.url);
+        return <div className="resources-library-row" key={item.id}><span className="resources-library-category">{phaseName(item.phase)}</span><div className="resources-library-name"><strong>{item.title}</strong>{item.detail&&item.detail!==item.title&&<small>{item.detail}</small>}</div>{url?<a href={url} target="_blank" rel="noopener noreferrer" className="resources-library-link">Open <ArrowUpRight size={15}/></a>:<span className="resources-library-missing">Link unavailable</span>}</div>;
+      })}{!items.length&&!error&&<p className="resources-library-empty">No resources are listed in the current source.</p>}</div>
+      <Pagination label="Resources" total={items.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size=>{setPageSize(size);setPage(0);}}/>
+    </section>}
   </div>;
 }
 
@@ -206,11 +214,28 @@ function LiveSources({token,readOnly=false}:{token:string;readOnly?:boolean}) {
 }
 
 function LiveAdmins({token,currentEmail}:{token:string;currentEmail:string}) {
-  const [admins,setAdmins]=useState<string[]>([]),[email,setEmail]=useState(''),[message,setMessage]=useState(''),[loading,setLoading]=useState(true);
-  const load=()=>{setLoading(true);return liveRequest<{admins:string[]}>(token,'admins').then(x=>setAdmins(x.admins)).catch(e=>setMessage(e.message)).finally(()=>setLoading(false));};
+  const [admins,setAdmins]=useState<string[]>([]),[email,setEmail]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false);
+  const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
+  const load=()=>{setLoading(true);setError('');return liveRequest<{admins:string[]}>(token,'admins').then(x=>setAdmins(x.admins)).catch(e=>setError(e instanceof Error?e.message:String(e))).finally(()=>setLoading(false));};
   useEffect(()=>{load();},[token]);
-  const act=async(action:string,payload:Record<string,unknown>)=>{try{const result=await liveRequest<{admins?:string[]}>(token,action,payload);if(result.admins)setAdmins(result.admins);setMessage('Administrator access updated. With D1 enabled, allow up to one synchronization interval before the role appears at sign-in.');}catch(e){setMessage(String(e instanceof Error?e.message:e));}};
-  return <><section className="card admincard"><h3>Administrator access</h3><p className="smallmuted">Every administrator has the same dashboard and permissions, including the ability to appoint another verified faculty member as an administrator. Administrators cannot revoke themselves.</p>{loading?<PortalLoading label="Loading administrators" detail="Verifying administrator accounts…"/>:<>{admins.map(name=><div className="adminrow" key={name}><div><b>{name}</b><small>Administrator</small></div>{name===currentEmail.toLowerCase()?<span className="pill green">You</span>:<button className="lightbtn" onClick={()=>{if(window.confirm('Revoke administrator access for '+name+'?'))void act('removeAdmin',{email:name});}}>Revoke</button>}</div>)}<form className="addform" onSubmit={e=>{e.preventDefault();void act('addAdmin',{email});setEmail('');}}><label>Add an administrator</label><div className="formrow"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button className="primarybtn">Grant administrator access</button></div></form></>}</section>{message&&<div className="infobar" role="status">{message}</div>}</>;
+  const act=async(action:'addAdmin'|'removeAdmin',target:string)=>{
+    if(saving)return;
+    setSaving(true);setError('');setMessage('');
+    try{
+      const result=await liveRequest<{admins?:string[]}>(token,action,{email:target});
+      if(result.admins){setAdmins(result.admins);setPage(0);}
+      if(action==='addAdmin')setEmail('');
+      setMessage('Administrator access updated. Newly added administrators will be recognized after the next D1 sync (normally within five minutes).');
+    }catch(e){setError(e instanceof Error?e.message:String(e));}
+    finally{setSaving(false);}
+  };
+  return <><section className="card admincard"><div className="admin-access-heading"><div><h3>Administrator access</h3><p className="smallmuted">All administrators have the same permissions and can appoint verified faculty. You cannot revoke your own access.</p></div><button type="button" className="lightbtn" disabled={loading||saving} onClick={()=>void load()}>Refresh</button></div>
+    {error&&<div className="live-error" role="alert">{error}</div>}{message&&<div className="infobar" role="status">{message}</div>}
+    {loading?<PortalLoading label="Loading administrators" detail="Verifying administrator accounts…"/>:<><h4 className="admin-access-count">Current administrators ({admins.length})</h4>{admins.slice(page*pageSize,(page+1)*pageSize).map(name=><div className="adminrow" key={name}><div><b>{name}</b><small>Administrator</small></div>{name===currentEmail.toLowerCase()?<span className="pill green">You</span>:<button className="lightbtn" disabled={saving} onClick={()=>{if(window.confirm('Revoke administrator access for '+name+'?'))void act('removeAdmin',name);}}>Revoke</button>}</div>)}
+      {!admins.length&&<p className="smallmuted">No administrator accounts returned. Please check the Apps Script connection.</p>}
+      <Pagination label="Administrators" total={admins.length} page={page} pageSize={pageSize} disabled={saving} onPageChange={setPage} onPageSizeChange={size=>{setPageSize(size);setPage(0);}}/>
+      <form className="addform" onSubmit={e=>{e.preventDefault();void act('addAdmin',email.trim());}}><label htmlFor="admin-new-email">Add an administrator</label><div className="formrow"><input id="admin-new-email" type="email" value={email} disabled={saving} onChange={e=>setEmail(e.target.value)} placeholder="faculty@bracu.ac.bd" required/><button type="submit" className="primarybtn" disabled={saving||!email.trim()}>{saving?'Updating…':'Grant administrator access'}</button></div></form></>}
+  </section></>;
 }
 
 export default function LivePortal() {
@@ -225,7 +250,6 @@ export default function LivePortal() {
   const [drawer,setDrawer]=useState(false);
   const [data,setData]=useState<StudentDashboard|SupervisorDashboard|null>(null);
   const [preview,setPreview]=useState<RolePreview|null>(null);
-  const [previewDialog,setPreviewDialog]=useState(false);
   const [error,setError]=useState('');
   useEffect(()=>subscribePortalActivity(setNetworkCount),[]);
   useEffect(()=>{
@@ -246,7 +270,7 @@ export default function LivePortal() {
     setLoggingOut(true);
     try{await liveRequest<{signedOut:boolean}>('','logout');}catch(e){setError('Unable to end your session. Please retry while connected.');setLoggingOut(false);return;}
     window.google?.accounts?.id.disableAutoSelect();clearLiveCache();setToken('');setSession(null);
-    setData(null);setPreview(null);setPreviewDialog(false);setPage('dashboard');setLoggingOut(false);
+    setData(null);setPreview(null);setPage('dashboard');setLoggingOut(false);
   };
   const role=preview?.role||selectedRole;
   const switchRole=(next:Session['role'])=>{
@@ -274,28 +298,28 @@ export default function LivePortal() {
   if(restoring)return <PortalLoading fullPage label="Restoring your university session" detail="Verifying your secure sign-in and access permissions…"/>;
   if(!session)return <LiveLogin onToken={login}/>;
   const displayData=preview?preview.data:data;
-  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrators',faculty:'Faculty list',announcements:'News & events'})[page];
+  const heading=({dashboard:role==='student'?'My thesis overview':role==='supervisor'?'My groups':'Academic overview',evaluations:'My evaluations',students:'My students',search:'Search academic records',rolepreview:'View as another role',deadlines:'Deadlines',resources:'Resources',sources:'Semester sources',admins:'Administrators',faculty:'Faculty list',announcements:'News & events'})[page];
   const exitPreview=()=>{clearLiveCache();setPreview(null);setPage('dashboard');setError('');};
   const awaitingData=dataBusy?<PortalLoading label="Loading your academic workspace" detail="Fetching records assigned to your verified university account…"/>:<section className="card"><p>We could not load your academic records. Please retry.</p><button className="lightbtn" type="button" onClick={()=>setDataAttempt(value=>value+1)}>Retry loading</button></section>;
   return <div className={`application ${role==='student'?'student-mode':role==='supervisor'?'supervisor-mode':''}`}>
     {networkVisible&&<div className="portal-request-bar" role="status" aria-label="Loading portal data"><span/></div>}
     <aside className={`sidebar ${drawer?'open':''}`}>
       <div className="brand"><BrandLogo/><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
-      <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{if(key==='rolepreview')setPreviewDialog(true);else setPage(key as LivePage);setDrawer(false);}}><Icon size={17}/>{label as string}</button>)}</nav></div>
-      <div className="sidebarfoot"><LockKeyhole size={15}/><span>Authenticated university portal<br/><small>{preview?'Admin support preview':'Role-restricted access'}</small></span></div>
+      <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(([key,label,Icon])=><button key={key as string} className={page===key?'selected':''} onClick={()=>{setPage(key as LivePage);setDrawer(false);}}><Icon size={17}/>{label as string}</button>)}</nav></div>
     </aside>
     {drawer&&<button className="scrim" aria-label="Close menu" onClick={()=>setDrawer(false)}/>}
     <div className="main">
       <header className="topbar"><button className="menuicon" aria-label="Open menu" onClick={()=>setDrawer(true)}><Menu size={22}/></button><span className="breadcrumbs">Academic Portal <ChevronRight size={13}/>{heading}</span><div className="topright"><span className="live-role">{roleLabel(role)}</span><AccountMenu session={session} role={role} onSwitch={switchRole} onSignOut={()=>void logout()} loggingOut={loggingOut}/></div></header>
       <main className="content">
         {preview&&<div className="prime-preview-banner" role="status"><div><Eye size={18}/><span><strong>Read-only role preview · {role?.replace('_',' ')}</strong><small>{preview.email} · You remain signed in as {session.email}</small></span></div><button onClick={exitPreview}>Exit preview</button></div>}
-        <div className="pageheading"><div><span className="eyebrow">{roleLabel(role).toUpperCase()}{preview?' · PREVIEW':''}</span><h1>{heading}</h1><p>{preview?`Viewing ${preview.email} · Read-only`:session.email}</p></div><div className="prime-heading-actions">{preview&&<button className="prime-view-btn" onClick={()=>setPreviewDialog(true)}><Eye size={15}/> Change preview</button>}</div></div>
+        <div className="pageheading"><div><span className="eyebrow">{roleLabel(role).toUpperCase()}{preview?' · PREVIEW':''}</span><h1>{heading}</h1><p>{preview?`Viewing ${preview.email} · Read-only`:session.email}</p></div><div className="prime-heading-actions">{preview&&<button className="prime-view-btn" onClick={()=>{exitPreview();setPage('rolepreview');}}><Eye size={15}/> Change preview</button>}</div></div>
         {error&&<div className="live-error" role="alert">{error} <button className="lightbtn" onClick={logout}>Sign in again</button></div>}
-        {page==='deadlines'?<LiveDeadlines token={token} studentStage={role==='student'?(displayData as StudentDashboard|null)?.group?.stage||'':undefined}/>:
+        {page==='rolepreview'&&showAdminControls?<PrimePreviewPage token={token} onStart={result=>{clearLiveCache();setPreview(result);setPage('dashboard');setError('');}}/>:
+          page==='deadlines'?<LiveDeadlines token={token} studentStage={role==='student'?(displayData as StudentDashboard|null)?.group?.stage||'':undefined}/>:
           page==='resources'?<LiveResources token={token}/>:
           role==='student'?displayData?<StudentExperience data={displayData as StudentDashboard} page={page==='evaluations'?'evaluations':'dashboard'} onNavigate={setPage}/>:awaitingData:
           role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard}/>:awaitingData:
-          page==='dashboard'?(showAdminControls?<PrimeOverview token={token} onNavigate={setPage}/>:<LiveSummary token={token}/>):
+          page==='dashboard'?(showAdminControls?<SimpleOverview token={token}/>:<LiveSummary token={token}/>):
           page==='search'?(showAdminControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
           page==='sources'?<LiveSources token={token} readOnly={!!preview}/>:
           page==='announcements'?<AdminAnnouncements token={token} readOnly={!!preview}/>:
@@ -309,6 +333,5 @@ export default function LivePortal() {
     ] as const):([
       ['dashboard','Groups',Users],['deadlines','Deadlines',CalendarDays],['resources','Resources',BookOpen],
     ] as const)).map(([key,label,Icon])=><button key={key} type="button" aria-current={page===key?'page':undefined} className={page===key?'selected':''} onClick={()=>{setPage(key);setDrawer(false);}}><Icon size={19}/><span>{label}</span></button>)}</nav>}
-    {previewDialog&&actualAdmin&&<PrimePreviewDialog token={token} onClose={()=>setPreviewDialog(false)} onStart={result=>{clearLiveCache();setPreview(result);setPage('dashboard');setError('');}}/>}
   </div>;
 }

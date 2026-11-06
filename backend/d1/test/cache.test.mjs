@@ -37,8 +37,8 @@ const groupB={id:'T2530002',title:'Group B',type:'Thesis',stage:'Final Thesis',p
 const seed=[
   makeRecord('admin','prime@bracu.ac.bd',{email:'prime@bracu.ac.bd'},{email:'prime@bracu.ac.bd'}),
   makeRecord('faculty','faculty@bracu.ac.bd',{email:'faculty@bracu.ac.bd',name:'Dr. Faculty A',designation:'Professor',room:'4A21'},{email:'faculty@bracu.ac.bd'}),
-  makeRecord('group','T2530001',groupA,{thesisId:'T2530001'}),
-  makeRecord('group','T2530002',groupB,{thesisId:'T2530002'}),
+  makeRecord('group','T2530001',groupA,{thesisId:'T2530001',stage:groupA.stage}),
+  makeRecord('group','T2530002',groupB,{thesisId:'T2530002',stage:groupB.stage}),
   makeRecord('student','22100001',{id:'22100001',name:'Student A',email:'a@g.bracu.ac.bd',thesisId:'T2530001',marks:{p1:0,p2:9}},{thesisId:'T2530001'}),
   makeRecord('student','22100002',{id:'22100002',name:'Student B',email:'b@g.bracu.ac.bd',thesisId:'T2530002',marks:{p1:4}},{thesisId:'T2530002'}),
   makeRecord('student_email','a@g.bracu.ac.bd',{studentId:'22100001'},{email:'a@g.bracu.ac.bd',thesisId:'T2530001'}),
@@ -100,6 +100,9 @@ test('D1 respects verified student and faculty scopes and preserves master comme
     assert.deepEqual((await readD1Action('deadlines',{email:'a@g.bracu.ac.bd'},env)).data.entries.map(item=>item.phase),['General','P2']);
     assert.equal((await readD1Action('deadlines',{email:'faculty@bracu.ac.bd'},env)).data.entries.length,3);
     assert.deepEqual((await readD1Action('session',{email:'prime@bracu.ac.bd'},env)).data.roles,['admin']);
+    assert.deepEqual((await readD1Action('overviewCounts',{email:'prime@bracu.ac.bd'},env)).data.counts,{P1:0,P2:1,Defense:1,Completed:0});
+    await assert.rejects(readD1Action('overviewCounts',{email:'faculty@bracu.ac.bd'},env),/Administrator access required/);
+    await assert.rejects(readD1Action('overviewCounts',{email:'a@g.bracu.ac.bd'},env),/Administrator access required/);
     assert.equal((await readD1Action('deadlines',{email:'prime@bracu.ac.bd'},env)).data.entries.length,3);
     assert.equal((await readD1Action('resources',{email:'b@g.bracu.ac.bd'},env)).data.items.length,1);
     await assert.rejects(readD1Action('student',{email:'faculty@bracu.ac.bd'},env),/Student record/);

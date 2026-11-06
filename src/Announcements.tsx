@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ArrowUpRight, CalendarDays, CheckCircle2, FileText, Megaphone, Newspaper, Pin, Plus, Save, Search, X } from 'lucide-react';
 import { liveRequest } from './live-api';
 import PortalLoading from './PortalLoading';
+import { Pagination, type PageSize } from './Pagination';
 
 type AnnouncementKind = 'Notice' | 'Event' | 'News' | 'Deadline';
 type AnnouncementStatus = 'draft' | 'published' | 'archived';
@@ -61,6 +62,7 @@ export function AdminAnnouncements({ token, readOnly = false }: { token: string;
   const [items, setItems] = useState<AdminItem[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [query, setQuery] = useState('');
+  const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +75,7 @@ export function AdminAnnouncements({ token, readOnly = false }: { token: string;
   };
   useEffect(() => { void load(); }, [token]);
   const filtered = useMemo(() => items.filter(item => [item.title, item.kind, item.body, item.status].some(value => value.toLowerCase().includes(query.toLowerCase().trim()))).sort((a,b) => Number(b.pinned)-Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)), [items, query]);
+  useEffect(()=>setPage(0),[query,pageSize]);
   const save = async (status: 'draft' | 'published') => {
     if (saving || readOnly) return;
     if (form.title.trim().length < 4 || form.body.trim().length < 10) { setError('Enter a title (4+ characters) and a description (10+ characters).'); return; }
@@ -100,7 +103,8 @@ export function AdminAnnouncements({ token, readOnly = false }: { token: string;
     <div className="news-admin-columns">
       <section className="card news-admin-list"><div className="news-admin-list-head"><div><h3>Announcements</h3><span>{items.length} total · {items.filter(item => item.status === 'published').length} published</span></div>{!readOnly && <button className="lightbtn" onClick={() => { setForm(emptyForm); setError(''); }}><Plus size={15} /> New</button>}</div>
         <label className="searchbox"><Search size={16} /><input placeholder="Find an announcement…" value={query} onChange={event => setQuery(event.target.value)} aria-label="Search announcements" /></label>
-        {busy ? <PortalLoading compact label="Loading announcements" detail="Fetching your saved notices and publication status…"/> : filtered.length ? <div className="news-admin-items">{filtered.map(item => <article key={item.id} className={`news-admin-item ${form.id === item.id ? 'selected' : ''}`}><div className="news-admin-item-main"><div><span className="welcome-news-kind">{item.kind}</span><span className={`news-status status-${item.status}`}>{item.status}</span>{item.pinned && <Pin size={13} />}</div><h4>{item.title}</h4><p>{item.body}</p><small>Updated {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('en-BD') : '—'}</small></div><div className="news-admin-actions">{!readOnly && <button className="lightbtn" type="button" onClick={() => edit(item)}>Edit</button>}{!readOnly && item.status !== 'published' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'published')}>Publish</button>}{!readOnly && item.status === 'published' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'draft')}>Unpublish</button>}{!readOnly && item.status !== 'archived' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'archived')}>Archive</button>}</div></article>)}</div> : <div className="news-admin-blank"><Megaphone size={21} /><strong>No announcements found</strong><p>Create your first public notice or try another search.</p></div>}
+        {busy ? <PortalLoading compact label="Loading announcements" detail="Fetching your saved notices and publication status…"/> : filtered.length ? <div className="news-admin-items">{filtered.slice(page*pageSize,(page+1)*pageSize).map(item => <article key={item.id} className={`news-admin-item ${form.id === item.id ? 'selected' : ''}`}><div className="news-admin-item-main"><div><span className="welcome-news-kind">{item.kind}</span><span className={`news-status status-${item.status}`}>{item.status}</span>{item.pinned && <Pin size={13} />}</div><h4>{item.title}</h4><p>{item.body}</p><small>Updated {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString('en-BD') : '—'}</small></div><div className="news-admin-actions">{!readOnly && <button className="lightbtn" type="button" onClick={() => edit(item)}>Edit</button>}{!readOnly && item.status !== 'published' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'published')}>Publish</button>}{!readOnly && item.status === 'published' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'draft')}>Unpublish</button>}{!readOnly && item.status !== 'archived' && <button className="lightbtn" type="button" disabled={saving} onClick={() => void changeStatus(item.id, 'archived')}>Archive</button>}</div></article>)}</div> : <div className="news-admin-blank"><Megaphone size={21} /><strong>No announcements found</strong><p>Create your first public notice or try another search.</p></div>}
+        {!busy&&<Pagination label="Announcements" total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} disabled={saving}/>}
       </section>
       {!readOnly && <section className="card news-admin-editor"><div className="news-admin-editor-title"><div><span className="eyebrow">{form.id ? 'EDIT ANNOUNCEMENT' : 'NEW ANNOUNCEMENT'}</span><h3>{form.id ? 'Update an announcement' : 'Create an announcement'}</h3></div>{form.id && <button className="iconbtn" aria-label="Clear editor" onClick={() => setForm(emptyForm)}><X size={17}/></button>}</div>
         <form onSubmit={event => { event.preventDefault(); void save('draft'); }}>

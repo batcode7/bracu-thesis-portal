@@ -9,7 +9,7 @@ import { readD1Action } from '../d1/read.mjs';
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
-  'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','preview','previewCandidates',
+  'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','overviewCounts','preview','previewCandidates',
   'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty','resources',
   'sync','restartSync','aliases','setAlias','removeAlias',
   'announcements','saveAnnouncement','statusAnnouncement','updateFaculty'

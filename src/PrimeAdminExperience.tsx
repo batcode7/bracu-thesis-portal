@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronRight, ClipboardCopy, Clock3, Database, Eye, FileSearch, GraduationCap, LoaderCircle, Search, Users, X } from 'lucide-react';
 import { cachedLiveRequest, clearLiveCache, liveRequest } from './live-api';
 import PortalLoading from './PortalLoading';
+import { Pagination, type PageSize } from './Pagination';
 import type { StudentDashboard, SupervisorDashboard } from './portal-api';
 
 type Phase = 'P1' | 'P2' | 'Defense';
@@ -114,6 +115,7 @@ export function PrimeSearch({ token }: { token: string }) {
   const [suggestError,setSuggestError]=useState('');
   const [rows, setRows] = useState<DirectoryRow[]>([]), [selected, setSelected] = useState<Detail | null>(null);
   const [offset,setOffset]=useState(0),[total,setTotal]=useState(0);
+  const [pageSize,setPageSize]=useState<PageSize>(10);
   const [busy, setBusy] = useState(false), [detailBusy, setDetailBusy] = useState(false), [loaded, setLoaded] = useState(false), [error, setError] = useState('');
   useEffect(()=>{
     const text=query.trim();
@@ -128,10 +130,10 @@ export function PrimeSearch({ token }: { token: string }) {
     },320);
     return()=>{active=false;window.clearTimeout(timeout);};
   },[token,query,picked]);
-  const run = async (nextOffset=0,selection:AcademicSuggestion|null=picked) => {
+  const run = async (nextOffset=0,selection:AcademicSuggestion|null=picked,limit:PageSize=pageSize) => {
     if (busy) return;
     setBusy(true); setError('');setLoaded(false);
-    try { const result = await liveRequest<{ rows: DirectoryRow[];total:number;offset:number }>(token, 'search', { q:selection?.kind==='faculty'?'':selection?.id||query.trim(),facultyEmail:selection?.kind==='faculty'?selection.id:'', stage, type: kind, offset:nextOffset }); setRows(result.rows);setOffset(result.offset);setTotal(result.total); setLoaded(true); }
+    try { const result = await liveRequest<{ rows: DirectoryRow[];total:number;offset:number }>(token, 'search', { q:selection?.kind==='faculty'?'':selection?.id||query.trim(),facultyEmail:selection?.kind==='faculty'?selection.id:'', stage, type: kind, offset:nextOffset,limit }); setRows(result.rows);setOffset(result.offset);setTotal(result.total); setLoaded(true); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   };
@@ -173,10 +175,10 @@ export function PrimeSearch({ token }: { token: string }) {
       </form>
     </section>
     {error && <div className="live-error" role="alert">{error}</div>}
-    <section className="card prime-search-results"><div className="prime-panel-heading"><div><h3>{loaded ? `${total} matching students` : 'Search results'}</h3><p>{loaded ? `Showing ${offset+1}–${offset+rows.length} of ${total} matching records.` : 'Start a search to explore verified records.'}</p></div><span className="prime-subtle-tag">100 per page</span></div>
+    <section className="card prime-search-results"><div className="prime-panel-heading"><div><h3>{loaded ? `${total} matching students` : 'Search results'}</h3><p>{loaded ? `Showing ${total?offset+1:0}–${offset+rows.length} of ${total} matching records.` : 'Start a search to explore verified records.'}</p></div></div>
       {busy ? <LoadingLines label="Looking through student and group records" /> : loaded ? <div className="tableoverflow"><table className="prime-table"><thead><tr><th>Student</th><th>Thesis / project ID</th><th>Primary supervisor</th><th>Stage</th><th></th></tr></thead><tbody>{rows.map(({ student, group }) => <tr key={student.id}><td><b>{student.name}</b><small>{student.id}</small></td><td><b>{group.id}</b><small>{group.type}</small></td><td>{group.primarySupervisor || 'Not assigned'}</td><td><span className="search-status">{group.stage}</span></td><td><button type="button" className="lightbtn" onClick={() => void detail(student.id)} disabled={detailBusy}>Details <ChevronRight size={14} /></button></td></tr>)}{rows.length === 0 && <tr><td colSpan={5} className="noresults">No records match this search. Try a different student or thesis ID.</td></tr>}</tbody></table></div> : <div className="prime-empty-search"><Search size={27} /><b>Ready when you are.</b><p>Enter a query to retrieve academic records securely.</p></div>}
     </section>
-    {loaded&&total>100&&<div className="formrow" role="navigation" aria-label="Student search pages"><button className="lightbtn" disabled={busy||offset===0} onClick={()=>void run(Math.max(0,offset-100))}>Previous 100</button><span className="smallmuted">Page {Math.floor(offset/100)+1} of {Math.ceil(total/100)}</span><button className="lightbtn" disabled={busy||offset+100>=total} onClick={()=>void run(offset+100)}>Next 100</button></div>}
+    {loaded&&<Pagination label="Student search" total={total} page={Math.floor(offset/pageSize)} pageSize={pageSize} disabled={busy} onPageChange={page=>void run(page*pageSize)} onPageSizeChange={size=>{setPageSize(size);void run(0,picked,size);}}/>}
     {detailBusy && <div className="modaloverlay" role="presentation"><section className="modalbox prime-detail-loading" role="status" aria-live="polite"><LoadingLines label="Loading student and thesis details" /></section></div>}
     {selected && !detailBusy && <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}><section className="modalbox admin-detail prime-detail" role="dialog" aria-modal="true" aria-label="Detailed student record"><div className="modalheader"><div><span className="eyebrow">ACADEMIC RECORD</span><h2>{selected.student.name}</h2><p className="detail-subtitle">Student ID {selected.student.id} · {selected.student.email}</p></div><button className="iconbtn" aria-label="Close student details" onClick={() => setSelected(null)}><X size={19} /></button></div>
       <div className="prime-id-band"><div><small>{selected.group.type} ID</small><strong>{selected.group.id}</strong></div><CopyValue value={selected.group.id} label="Copy ID" /></div>
@@ -214,6 +216,7 @@ function FacultyEditCell({row,field,onSave}:{row:FacultyRow;field:EditableFacult
 
 export function PrimeFacultyList({ token }: { token: string }) {
   const [data,setData]=useState<FacultyResult|null>(null),[query,setQuery]=useState(''),[filter,setFilter]=useState('all');
+  const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
   const [busy,setBusy]=useState(true),[error,setError]=useState(''),[success,setSuccess]=useState('');
   const refresh=async()=>{const result=await liveRequest<FacultyResult>(token,'facultyList');setData(result);};
   useEffect(()=>{let active=true;liveRequest<FacultyResult>(token,'facultyList').then(result=>{if(active)setData(result);}).catch(err=>{if(active)setError(err instanceof Error?err.message:String(err));}).finally(()=>{if(active)setBusy(false);});return()=>{active=false;};},[token]);
@@ -223,19 +226,22 @@ export function PrimeFacultyList({ token }: { token: string }) {
     await refresh();setSuccess(row.name+': '+field+' saved to Faculty Details.');setError('');
   };
   const rows=useMemo(()=>(data?.faculty||[]).filter(row=>(filter==='all'||(filter==='verified'?!!row.email:!row.email))&&[row.name,row.email,row.initial,row.designation,row.room,...row.aliases].some(value=>value.toLowerCase().includes(query.toLowerCase().trim()))),[data,query,filter]);
+  useEffect(()=>setPage(0),[query,filter,pageSize]);
+  const visible=rows.slice(page*pageSize,(page+1)*pageSize);
   return <div className="prime-stack"><section className="prime-intro"><div><span className="eyebrow">FACULTY DIRECTORY</span><h2>Faculty directory</h2><p>Verified names and contacts from the official Faculty Details sheet. Double-click an editable cell to update it.</p></div><button type="button" className="lightbtn" disabled={busy} onClick={()=>{setBusy(true);void refresh().catch(e=>setError(String(e))).finally(()=>setBusy(false));}}>Refresh</button></section>
     {error&&<div className="live-error" role="alert">{error}</div>}{success&&<div className="infobar" role="status">{success}</div>}
     {data?.warning&&<div className="infobar">{data.warning}</div>}
     {data&&<div className="prime-directory-stats"><div><b>{data.matched}</b><span>Verified faculty</span></div><div><b>{data.missing}</b><span>Unmatched or ambiguous names</span></div><div><Clock3 size={17}/><span>Updated: {friendlyDate(data.updatedAt)}</span></div></div>}
     <section className="card prime-panel"><div className="prime-directory-controls"><label className="searchbox"><Search size={17}/><input placeholder="Search names, initials or emails…" aria-label="Search faculty directory" value={query} onChange={e=>setQuery(e.target.value)}/></label><select aria-label="Faculty identity filter" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All faculty</option><option value="verified">Verified directory</option><option value="missing">Unmatched names</option></select></div>
-      {busy?<LoadingLines label="Refreshing the faculty directory"/>:<div className="tableoverflow"><table className="prime-table faculty-table"><thead><tr><th>Initial</th><th>Faculty name</th><th>Designation</th><th>Status</th><th>Room</th><th>University email</th><th>Groups</th></tr></thead><tbody>{rows.map((row,index)=><tr key={row.email||row.name+'-'+index}>
+      {busy?<LoadingLines label="Refreshing the faculty directory"/>:<div className="tableoverflow"><table className="prime-table faculty-table"><thead><tr><th>Initial</th><th>Faculty name</th><th>Designation</th><th>Status</th><th>Room</th><th>University email</th><th>Groups</th></tr></thead><tbody>{visible.map((row,index)=><tr key={row.email||row.name+'-'+index}>
         <td><FacultyEditCell row={row} field="initial" onSave={save}/></td><td><b>{row.name}</b>{!row.email&&<small className="faculty-unmatched">{row.source}</small>}{row.aliases.length>0&&<small>Also known as: {row.aliases.join(', ')}</small>}</td><td><FacultyEditCell row={row} field="designation" onSave={save}/></td><td>{row.status||'—'}</td><td><FacultyEditCell row={row} field="room" onSave={save}/></td><td><FacultyEditCell row={row} field="email" onSave={save}/></td><td><b>{row.groups}</b></td>
       </tr>)}{!rows.length&&<tr><td colSpan={7} className="noresults">No matching faculty records.</td></tr>}</tbody></table></div>}
+      {!busy&&<Pagination label="Faculty directory" total={rows.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}/>}
       <p className="prime-footnote">Edits require administrator permissions and are verified against the current source row. Ambiguous names never grant access. Updates are audited in a private edit log.</p>
     </section></div>;
 }
 
-export function PrimePreviewDialog({ token, onClose, onStart }: { token: string; onClose: () => void; onStart: (preview: RolePreview | null) => void }) {
+export function PrimePreviewPage({ token, onStart }: { token: string; onStart: (preview: RolePreview | null) => void }) {
   const [role, setRole] = useState<RolePreview['role']>('student'), [email, setEmail] = useState(''), [query, setQuery] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [facultyOptions, setFacultyOptions] = useState<Array<{email:string;name:string;initial:string;room:string;designation:string}>>([]);
   const [facultyBusy, setFacultyBusy] = useState(false);
@@ -287,11 +293,11 @@ export function PrimePreviewDialog({ token, onClose, onStart }: { token: string;
     event.preventDefault();
     if (!validTarget) { setError('Select a matching account from the search results or enter its full verified Workspace email.'); return; }
     setBusy(true); setError('');
-    try { const result = await liveRequest<RolePreview>(token, 'preview', { role, email: targetEmail }); onStart(role === 'admin' ? null : result); onClose(); }
+    try { const result = await liveRequest<RolePreview>(token, 'preview', { role, email: targetEmail }); onStart(role === 'admin' ? null : result); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(false); }
   };
-  return <div className="modaloverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="modalbox prime-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="prime-preview-title"><div className="modalheader"><div><span className="eyebrow">ADMIN ONLY</span><h2 id="prime-preview-title">View as another role</h2><p className="detail-subtitle">Inspect the experience without changing your authenticated identity.</p></div><button className="iconbtn" aria-label="Close preview" onClick={onClose}><X size={19} /></button></div>
+  return <section className="card prime-preview-page" aria-labelledby="prime-preview-title"><div className="prime-preview-page-header"><div><span className="eyebrow">READ-ONLY PREVIEW</span><h2 id="prime-preview-title">Choose an experience</h2><p className="detail-subtitle">Inspect the experience without changing your authenticated identity.</p></div></div>
     <form className="prime-preview-form" onSubmit={event => void submit(event)}><label>Portal experience</label><select value={role} onChange={event => { setRole(event.target.value as RolePreview['role']); setEmail(''); setQuery('');setFacultySearch('');setSuggestions([]);setSuggestOpen(false); setError(''); }}><option value="admin">Admin (return to my workspace)</option><option value="supervisor">Supervisor / Faculty</option><option value="student">Student</option></select>
       {role==='supervisor'&&<><label htmlFor="prime-preview-faculty-search">Choose a verified faculty member</label><input id="prime-preview-faculty-search" type="search" placeholder="Type faculty initials (e.g., PB), name or email…" value={facultySearch} disabled={facultyBusy} onChange={event=>{setFacultySearch(event.target.value);setEmail('');setQuery('');setError('');}} onKeyDown={event=>{if(event.key==='Enter'&&filteredFaculty.length===1){event.preventDefault();chooseFaculty(filteredFaculty[0]);}}}/><select aria-label="Select a verified faculty member" value={filteredFaculty.some(item=>item.email===targetEmail)?targetEmail:''} disabled={facultyBusy} onChange={event=>{const found=facultyOptions.find(item=>item.email===event.target.value);if(found)chooseFaculty(found);}}><option value="">{facultyBusy?'Loading verified faculty…':`Select faculty from the directory (${filteredFaculty.length})`}</option>{filteredFaculty.map(item=><option value={item.email} key={item.email}>{item.initial?item.initial+' · ':''}{item.name}</option>)}</select><p className="prime-preview-hint">{facultyOptions.length?`${facultyOptions.length} verified faculty accounts, sorted alphabetically. Type initials or a name to narrow the list, then choose a result.`:facultyBusy?'Loading the official faculty directory…':'No verified faculty records found. Check Faculty List.'}</p><label htmlFor="prime-preview-faculty-email">Verified faculty Google Workspace email</label><input id="prime-preview-faculty-email" name="preview-faculty-email" type="email" autoComplete="off" placeholder="faculty@bracu.ac.bd" value={query} onChange={event=>{setQuery(event.target.value);setEmail('');setError('');}}/>{targetEmail.includes('@')&&!validFaculty&&!facultyBusy&&<p className="prime-preview-warning">This email is not in the verified Faculty Details directory.</p>}</>}
       {role==='student'&&<><label htmlFor="prime-preview-email">Find student by name, ID or Workspace email</label><div className="prime-search-autocomplete prime-preview-autocomplete"><input id="prime-preview-email" name="preview-target-account" autoComplete="off" role="combobox" aria-autocomplete="list" aria-expanded={suggestOpen&&suggestions.length>0} aria-controls="prime-preview-suggestions" aria-activedescendant={suggestOpen&&suggestions[activeIndex]?'prime-preview-suggestion-'+activeIndex:undefined} placeholder="Start typing a student name, ID or email…" value={query} onChange={event => {setQuery(event.target.value);setEmail('');setError('');setSuggestOpen(true);setActiveIndex(0);}} onFocus={()=>{if(query.trim().length>=2)setSuggestOpen(true);}} onBlur={()=>window.setTimeout(()=>setSuggestOpen(false),140)} onKeyDown={event=>{
@@ -303,5 +309,5 @@ export function PrimePreviewDialog({ token, onClose, onStart }: { token: string;
       {error && <div className="live-error" role="alert">{error}</div>}
       <button className="primarybtn" type="submit" disabled={busy || (role==='supervisor'&&facultyBusy) || !validTarget}>{busy ? <><LoaderCircle size={16} className="prime-spin" /> Preparing view…</> : <>Open preview <ArrowRight size={16} /></>}</button>
     </form>
-  </section></div>;
+  </section>;
 }

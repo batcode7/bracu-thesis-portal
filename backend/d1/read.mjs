@@ -3,7 +3,7 @@
  * gateway, never in this module. The caller MUST provide its verified Google
  * principal (or a server-signed session), never an email from the request body.
  */
-const FAST_ACTIONS = new Set(['session','student','supervisor','deadlines','resources']);
+const FAST_ACTIONS = new Set(['session','student','supervisor','deadlines','resources','overviewCounts']);
 const PHASES = {
   P1:{field:'p1',max:5},P2:{field:'p2',max:10},
   Defense:{field:'defense',max:30},Supervisor:{field:'supervisor',max:55},
@@ -19,6 +19,11 @@ const stage = value => {
   if(/^(prethesis2|p2|pre2)$/.test(v))return 'P2';
   if(/(final|defense|defence|ft)/.test(v))return 'Defense';
   return '';
+};
+const countStage = value => {
+  const v=normalized(value).replace(/[\s_-]+/g,'');
+  if(/(complete|finished|graduat)/.test(v))return 'Completed';
+  return stage(value);
 };
 const comment = value => {
   const v=String(value||'').trim();
@@ -85,6 +90,14 @@ export async function readD1Action(action,principal,env){
   if(action==='session')return {handled:true,data:{role:roles[0],roles,email,
     name:String(principal.name||faculty?.name||email).slice(0,120),
     designation:faculty?.designation||'',room:faculty?.room||''}};
+
+  if(action==='overviewCounts'){
+    if(!isAdmin)fail(403,'Administrator access required');
+    const counts={P1:0,P2:0,Defense:0,Completed:0};
+    const stages=await rows(env.DB,"SELECT stage,COUNT(*) AS total FROM portal_cache WHERE generation=? AND kind='group' GROUP BY stage",gen);
+    for(const row of stages){const key=countStage(row.stage);if(Object.hasOwn(counts,key))counts[key]+=Number(row.total)||0;}
+    return {handled:true,data:{counts}};
+  }
 
   if(action==='resources'){
     const result=(await rows(env.DB,"SELECT data_json FROM portal_cache WHERE generation=? AND kind='resource' ORDER BY CAST(item_key AS INTEGER)",gen)).map(decode);

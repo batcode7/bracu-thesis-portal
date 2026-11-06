@@ -3,6 +3,7 @@ import { ArrowRight, Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, Ma
 import type { SupervisorDashboard } from './portal-api';
 import type { ThesisGroup } from './data';
 import { studentPhase } from './StudentExperience';
+import { Pagination, type PageSize } from './Pagination';
 
 type StageFilter = 'all' | 'P1' | 'P2' | 'Defense' | 'Completed' | 'Deferred';
 type TypeFilter = 'all' | 'Thesis' | 'Project' | 'Internship';
@@ -70,6 +71,7 @@ export default function SupervisorExperience({data}:{data:SupervisorDashboard}) 
   const [stage,setStage]=useState<StageFilter>('all');
   const [type,setType]=useState<TypeFilter>('all');
   const [myRole,setMyRole]=useState<RoleFilter>('all');
+  const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const distinctGroups=useMemo(()=>Array.from(new Map(data.groups.map(group=>[group.id,group])).values()),[data.groups]);
   const studentMap=useMemo(()=>{
@@ -84,6 +86,8 @@ export default function SupervisorExperience({data}:{data:SupervisorDashboard}) 
     return !text||[group.id,group.title,group.type,group.stage,group.primarySupervisor,group.secondarySupervisor,group.coSupervisor1,group.coSupervisor2,...students.flatMap(s=>[s.id,s.name,s.email])].some(value=>String(value||'').toLowerCase().includes(text));
   }),[distinctGroups,studentMap,query,stage,type,myRole]);
   const matchingStudents=new Set(groups.flatMap(group=>(studentMap.get(group.id)||[]).map(s=>s.id))).size;
+  useEffect(()=>setPage(0),[query,stage,type,myRole,pageSize]);
+  const visibleGroups=groups.slice(page*pageSize,(page+1)*pageSize);
   const selected=distinctGroups.find(group=>group.id===selectedId);
   const reset=()=>{setQuery('');setStage('all');setType('all');setMyRole('all');};
   return <div className="supervisor-workspace">
@@ -91,7 +95,8 @@ export default function SupervisorExperience({data}:{data:SupervisorDashboard}) 
     <div className="supervisor-stats"><div className="card"><span><GraduationCap size={17}/> Matching groups</span><strong>{groups.length}</strong><small>Updates with every filter</small></div><div className="card"><span><Users size={17}/> Unique students</span><strong>{matchingStudents}</strong><small>Across matching groups · deduplicated by ID</small></div></div>
     <section className="card supervisor-groups-panel"><div className="supervisor-filters"><label className="supervisor-search"><Search size={17}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search group ID, title or student…" aria-label="Search supervised groups" /></label><div className="supervisor-filter-fields"><label><span>Current stage</span><select value={stage} onChange={event=>setStage(event.target.value as StageFilter)}>{stageFilters.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label><span>Research type</span><select value={type} onChange={event=>setType(event.target.value as TypeFilter)}><option value="all">All types</option><option value="Thesis">Thesis</option><option value="Project">Project</option><option value="Internship">Internship</option></select></label><label><span>My role</span><select value={myRole} onChange={event=>setMyRole(event.target.value as RoleFilter)}><option value="all">All roles</option><option value="Supervisor">Supervisor</option><option value="Co-Supervisor">Co-Supervisor</option></select></label></div></div>
       <div className="supervisor-list-heading"><h3>{groups.length} {groups.length===1?'group':'groups'} · {matchingStudents} {matchingStudents===1?'student':'students'}</h3><span>{stage!=='all'||type!=='all'||myRole!=='all'||query?'Filtered from your assigned groups':'Only groups assigned to your verified faculty identity'}</span></div>
-      {groups.length?<div className="supervisor-group-list"><div className="supervisor-column-head"><span>Thesis / group</span><span>Students</span><span>Current stage</span><span>Type</span><span>My role</span><span></span></div>{groups.map(group=><article key={group.id} className="supervisor-group-row"><div className="supervisor-group-primary"><strong>{group.id}</strong><small>{group.title||'Research title not recorded'}</small></div><div className="supervisor-group-count"><Users size={15}/><strong>{new Set((studentMap.get(group.id)||[]).map(s=>s.id)).size}</strong><span className="supervisor-mobile-caption">students</span></div><div><span className={`supervisor-stage-badge ${group.stage.toLowerCase()==='completed'?'complete':''}`}>{group.stage}</span></div><div><span className="supervisor-type-badge">{group.type}</span></div><div className="supervisor-my-role">{group.myRoles?.join(' & ')||'—'}</div><button type="button" className="supervisor-view-button" onClick={()=>setSelectedId(group.id)}>Details <ChevronRight size={16}/></button></article>)}</div>:<div className="supervisor-no-results"><Search size={24}/><strong>No groups match these filters</strong><p>Try a different stage, type, role, or search term.</p><button type="button" onClick={reset}>Clear filters <ArrowRight size={14}/></button></div>}
+      {groups.length?<div className="supervisor-group-list"><div className="supervisor-column-head"><span>Thesis / group</span><span>Students</span><span>Current stage</span><span>Type</span><span>My role</span><span></span></div>{visibleGroups.map(group=><article key={group.id} className="supervisor-group-row"><div className="supervisor-group-primary"><strong>{group.id}</strong><small>{group.title||'Research title not recorded'}</small></div><div className="supervisor-group-count"><Users size={15}/><strong>{new Set((studentMap.get(group.id)||[]).map(s=>s.id)).size}</strong><span className="supervisor-mobile-caption">students</span></div><div><span className={`supervisor-stage-badge ${group.stage.toLowerCase()==='completed'?'complete':''}`}>{group.stage}</span></div><div><span className="supervisor-type-badge">{group.type}</span></div><div className="supervisor-my-role">{group.myRoles?.join(' & ')||'—'}</div><button type="button" className="supervisor-view-button" onClick={()=>setSelectedId(group.id)}>Details <ChevronRight size={16}/></button></article>)}</div>:<div className="supervisor-no-results"><Search size={24}/><strong>No groups match these filters</strong><p>Try a different stage, type, role, or search term.</p><button type="button" onClick={reset}>Clear filters <ArrowRight size={14}/></button></div>}
+      <Pagination label="Supervised groups" total={groups.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}/>
     </section>
     {selected&&<GroupDetails key={selected.id} group={selected} students={studentMap.get(selected.id)||[]} onClose={()=>setSelectedId(null)}/>}
   </div>;

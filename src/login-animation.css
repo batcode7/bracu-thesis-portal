@@ -1,0 +1,9 @@
+.welcome-login-progress{display:grid;grid-template-columns:42px minmax(0,1fr);gap:12px;align-items:center;margin-top:17px;padding:15px 14px;background:#f5f9fc;border:1px solid #dfebf3;border-radius:12px}
+.welcome-login-orbit{width:40px;height:40px;display:flex;align-items:center;justify-content:center;color:#246397;background:#e5f1f9;border-radius:50%;animation:loginSoftPulse 2.1s ease-in-out infinite}
+.welcome-login-progress strong{display:block;font-size:12px;color:#214a6e}
+.welcome-login-progress small{display:block;font-size:11px;line-height:1.6;color:#768ba1;margin-top:2px}
+.welcome-login-progress-track{height:3px;overflow:hidden;grid-column:1/-1;background:#d7e7f2;border-radius:9px}
+.welcome-login-progress-track>span{display:block;height:100%;width:42%;border-radius:9px;background:linear-gradient(90deg,#69a9c9,#0c5388);animation:loginIndeterminate 1.8s ease-in-out infinite}
+@keyframes loginIndeterminate{0%{transform:translateX(-105%)}100%{transform:translateX(345%)}}
+@keyframes loginSoftPulse{0%,100%{box-shadow:0 0 0 0 rgba(38,115,161,.14)}50%{box-shadow:0 0 0 7px rgba(38,115,161,0)}}
+@media(prefers-reduced-motion:reduce){.welcome-login-orbit,.welcome-login-progress-track>span{animation:none}.welcome-login-progress-track>span{width:100%}}

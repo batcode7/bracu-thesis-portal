@@ -26,7 +26,6 @@ function SideNav({ role, page, setPage, close }: { role: Role; page: Page; setPa
   return <>
     <div className="brand"><BrandLogo/><div><strong>BRAC University</strong><small>Thesis Evaluation Portal</small></div></div>
     <div><div className="navlabel">WORKSPACE</div><nav className="nav">{nav.map(({ key, label, icon: Icon }) => <button key={key} className={page === key ? 'selected' : ''} onClick={() => { setPage(key); close(); }}><Icon size={17} strokeWidth={1.9} />{label}</button>)}</nav></div>
-    <div className="sidebarfoot"><LockKeyhole size={15} /><span>Read-only academic workspace<br /><small>Prototype • Demo records only</small></span></div>
   </>;
 }
 

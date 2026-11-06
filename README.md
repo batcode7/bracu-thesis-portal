@@ -23,6 +23,8 @@ To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`do
 
 **D1 + role/deadline upgrade:** See **[`docs/D1_SETUP.md`](docs/D1_SETUP.md)** for the latest roll-out checklist. The live portal has one **Admin** role (all admins can appoint other admins), multi-role account switching, searchable role preview from the overview, live academic deadlines/resources, and an optional Cloudflare D1 read replica. An Apps Script scheduled sync captures changes to old rows too. The D1 fast path requires a one-time database/binding/secret setup. The original Pages + Apps Script setup still works without D1.
 
+**Overview, loading, and pagination update:** See [`docs/UPGRADE_OVERVIEW_PAGINATION.md`](docs/UPGRADE_OVERVIEW_PAGINATION.md). The live administrator Overview shows four D1-backed group counts; Faculty List and administrator requests bypass full student reads; View as another role is a dedicated page; paginated lists default to 10 rows; resource links missing from the university source are identified clearly.
+
 ## Current state
 
 - Google Workspace-first landing design; demo previews cannot impersonate a university login. Responsive student dashboard, evaluation cards, semester labels and faculty-comment dialogs.

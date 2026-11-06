@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BookOpenCheck, CheckCircle2, GraduationCap, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, GraduationCap, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { PublicAnnouncements } from './Announcements';
 import { BrandLogo } from './BrandLogo';
 
@@ -19,7 +19,6 @@ export function PortalWelcome({ children, isDemo = false }: { children: ReactNod
           <div><span className="welcome-stage-number">02</span><span>Pre-Thesis 2</span><CheckCircle2 size={16}/></div>
           <div><span className="welcome-stage-number">03</span><span>Final Defense</span><GraduationCap size={17}/></div>
         </div>
-        <div className="welcome-footnote"><BookOpenCheck size={17}/><span>Students see their own results. Supervisors see their assigned groups. Administrative access is restricted by role.</span></div>
       </section>
       <section className="welcome-auth card" aria-label="Sign in">
         <div className="welcome-auth-icon"><ShieldCheck size={20}/></div>

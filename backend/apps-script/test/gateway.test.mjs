@@ -173,6 +173,42 @@ test('previously delegated admin emails migrate as equal administrators on the f
     delete props.PRIME_ADMIN_EMAILS_JSON;delete props.ADMIN_EMAILS_JSON;delete props.ADMIN_ROLE_LIST_JSON;delete props.ADMIN_ROLE_AUDIT_JSON;
   }
 });
+test('administrator listing and grant never read the student or group master',()=>{
+  const oldStudents=context.students_,oldGroups=context.groups_,oldLock=context.LockService;
+  const oldDirectory=props.FACULTY_DIRECTORY_JSON;
+  context.students_=()=>{throw new Error('Full student master should not load');};
+  context.groups_=()=>{throw new Error('Full group master should not load');};
+  context.LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})};
+  props.FACULTY_DIRECTORY_JSON=JSON.stringify([{email:'faculty@bracu.ac.bd',names:['Faculty A'],initial:'FA'}]);
+  try{
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','admins').admins.length,1);
+    const granted=run('partha.bhoumik@bracu.ac.bd','addAdmin',{email:'faculty@bracu.ac.bd'});
+    assert.equal(granted.admins.length,2);
+    assert.equal(run('faculty@bracu.ac.bd','admins').admins.length,2);
+  }finally{
+    context.students_=oldStudents;context.groups_=oldGroups;context.LockService=oldLock;
+    props.FACULTY_DIRECTORY_JSON=oldDirectory;delete props.ADMIN_ROLE_LIST_JSON;delete props.ADMIN_ROLE_AUDIT_JSON;
+  }
+});
+test('faculty listing and overview counts skip student rows and keep distinct groups',()=>{
+  const oldStudents=context.students_,oldGroups=context.groups_;
+  context.students_=()=>{throw new Error('Full student master should not load');};
+  context.groups_=()=>[...groups,{...groups[0]},{...groups[1],id:'T2530125',stage:'Completed'}];
+  try{
+    const listed=run('partha.bhoumik@bracu.ac.bd','facultyList');
+    assert.equal(listed.faculty.find(f=>f.email==='faculty@bracu.ac.bd').groups,1);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','overviewCounts').counts.P2,1);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','overviewCounts').counts.Defense,1);
+    assert.equal(run('partha.bhoumik@bracu.ac.bd','overviewCounts').counts.Completed,1);
+    assert.throws(()=>run('faculty@bracu.ac.bd','overviewCounts'),/Not authorized/);
+  }finally{context.students_=oldStudents;context.groups_=oldGroups;}
+});
+test('admin student search accepts bounded selectable page sizes',()=>{
+  const result=run('partha.bhoumik@bracu.ac.bd','search',{q:'',limit:10,offset:0});
+  assert.equal(result.total,2);
+  assert.equal(result.rows.length,2);
+  assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','search',{q:'',limit:500}),/Invalid search page size/);
+});
 test('blank indexed evaluator comments cannot override a master comment or conceal official marks',()=>{
   const blank=[...evaluations,{...evaluations[0],evaluator:'Judge C',comment:''}];
   context.comments_=()=>blank;
@@ -349,7 +385,7 @@ test('faculty inline edits require Admin, reject conflicts, and audit exact sour
   try{
     const edit={email:'faculty@bracu.ac.bd',field:'designation',expected:'Lecturer',value:'Senior Lecturer'};
     assert.throws(()=>run('faculty@bracu.ac.bd','updateFaculty',edit),/Not authorized/);
-    assert.throws(()=>run('admin@bracu.ac.bd','updateFaculty',edit),/not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','updateFaculty',edit),/not authorized/i);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,expected:'Outdated'}),/changed since/);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'other@bracu.ac.bd'}),/already belongs/);
     assert.throws(()=>run('partha.bhoumik@bracu.ac.bd','updateFaculty',{...edit,field:'email',expected:'faculty@bracu.ac.bd',value:'faculty@gmail.com'}),/University faculty/);
@@ -386,7 +422,7 @@ test('official Faculty Details rows populate the secure directory without manual
     assert.equal(faculty.name,'Faculty A');assert.equal(faculty.initial,'FA');
     assert.equal(faculty.designation,'Lecturer');assert.equal(faculty.room,'4A20');
     assert.equal(faculty.groups,1);
-    assert.throws(()=>run('admin@bracu.ac.bd','facultyList'),/not authorized/);
+    assert.throws(()=>run('admin@bracu.ac.bd','facultyList'),/not authorized/i);
   } finally {
     context.SpreadsheetApp=previous;
     delete props.FACULTY_AUTO_PARTS;delete props.FACULTY_AUTO_UPDATED;

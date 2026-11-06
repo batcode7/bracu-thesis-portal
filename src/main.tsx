@@ -13,6 +13,9 @@ import './announcements.css';
 import './student-experience.css';
 import './supervisor-experience.css';
 import './portal-loading.css';
+import './pagination.css';
+import './resources-library.css';
+import './login-animation.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>{PORTAL_LIVE ? <LivePortal /> : <App />}</React.StrictMode>,
