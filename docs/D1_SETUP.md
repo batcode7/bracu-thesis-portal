@@ -5,18 +5,18 @@ This is a **deployment guide**, not an already-live migration. The application s
 ## What changes
 
 - **Google Sheets stays authoritative.** Edits to old *or* new rows, student names, group assignments, comments, scores, faculty details, deadlines, and resource links are included in each synchronized snapshot.
-- A 5-minute Apps Script time trigger scans the Thesis Master (including its `Resources` tab) and the `Deadlines and Links` workbook (deadlines only). A SHA-256 snapshot checksum avoids rewriting unchanged data; however it still checks the D1 active checksum, so restoring or replacing a database is detected.
+- An optional 5-minute Apps Script trigger scans the Thesis Master and academic links. A full-data checksum skips unchanged data; when source data changes, per-record SHA-256 hashes select only added, updated and removed records.
 - Cloudflare Pages Functions read student dashboards, **paginated faculty dashboards**, student search/results, student/group details, the faculty directory, autocomplete suggestions, account roles, deadlines and resources **directly from D1**.
 - Initial directory and faculty pages retrieve only 10 records; later pages are fetched on demand. Group abstracts are omitted from the initial faculty group listing and are prefetched separately after the first page renders, then revealed only when requested.
 - Faculty edits, role grants, announcements, historical index sync, and other state-changing operations still use the authenticated Apps Script backend. An administrative update to the authoritative sheet is reflected in D1 after synchronization, not instantly.
-- Snapshot activation happens only after all batches have been stored; readers see the last complete generation during a partial/failing update. The previous three successful generations are retained for cleanup safety.
+- The first import activates one complete generation. Later imports stage changed rows/removals and atomically apply only that delta to the long-lived active generation. Failed/interrupted uploads cannot partially overwrite active data.
 - Normal synchronization lag is approximately 0–5 minutes **plus the trigger's processing time**. It is not instant. Google may delay scheduled triggers. A temporarily unavailable upstream sheet prevents a successful new snapshot; the previous D1 generation stays available.
 
 ## Step 1 — Create D1 database
 
 In **Cloudflare** create a D1 database, for example `bracu_thesis_cache`. On the Cloudflare Pages project for `bracu-thesis-portal.pages.dev`, add a **D1 database binding** named exactly `DB`, targeting that database.
 
-Apply [`backend/d1/schema.sql`](../backend/d1/schema.sql). **Run the updated schema even if D1 already exists:** it safely adds the optional name index used by paginated directory reads. Using Wrangler on a machine authenticated to your Cloudflare account:
+Apply [`backend/d1/schema.sql`](../backend/d1/schema.sql) to a **new or empty** database. The v11 schema includes row hashes and a removal staging table. `CREATE TABLE IF NOT EXISTS` does not upgrade an existing v10 schema. Using Wrangler on a machine authenticated to your Cloudflare account:
 
 ```bash
 npx wrangler d1 execute bracu_thesis_cache --remote --file backend/d1/schema.sql
@@ -24,7 +24,7 @@ npx wrangler d1 execute bracu_thesis_cache --remote --file backend/d1/schema.sql
 
 Or paste the statements into the database's SQL console in the Cloudflare dashboard. Execute each statement once; they are safe to rerun because they use `IF NOT EXISTS`.
 
-Verify the three tables `portal_cache`, `portal_sync_runs`, and `portal_active` exist.
+Verify four tables: `portal_cache`, `portal_sync_runs`, `portal_sync_deletes`, and `portal_active`.
 
 ## Step 2 — Configure Cloudflare Pages
 
@@ -52,7 +52,7 @@ Use different secrets for D1 and Apps Script. Never put either secret in a front
    | `MASTER_SHEET_ID` | The existing Thesis Master spreadsheet ID (the file has a verified default) |
    | `DEADLINE_SHEET_ID` | `1SkyO77YFde-N4bpxQ5lb07FH24hFINyR4JBgD47Xamk` (the current deadline/resource workbook; already the code default) |
 
-4. Run **`installD1Sync()`** once from the Apps Script editor as the spreadsheet-owning account. Approve the necessary spreadsheet, trigger and external-request permissions. It immediately calls `syncD1Now()` and schedules a repeat approximately every five minutes. Run `syncD1Now()` manually whenever you need an immediate refresh.
+4. For a freshly cleared database, remove any stale Script Properties `D1_PENDING_GENERATION`, `D1_PENDING_CHECKSUM`, `D1_PENDING_CURSOR`, and `D1_PENDING_DELETE_CURSOR`. Run **`syncD1Now()` manually** from Apps Script. If it returns `pending: true`, run it again to resume. Once the new Pages code, schema, and Apps Script are deployed and a complete manual import is verified, optionally run `installD1Sync()` to enable the five-minute trigger.
 5. Verify that the execution log returns `{synced: true, count: ..., changed: true}`. Query the D1 console:
 
 ```sql
@@ -65,7 +65,7 @@ GROUP BY kind;
 
 Do not enable the D1 read path until these checks pass. If synchronization fails, investigate Apps Script execution logs and the Cloudflare Pages Function logs. The prior active generation remains intact.
 
-**For an existing D1 installation upgrading to paginated faculty reads:** The new Apps Script `D1Sync.gs` exports an additional `faculty_list` record kind. After running the upgraded synchronization, verify the query above shows a **nonzero `faculty_list` count**. The new faculty directory endpoint deliberately returns a configuration error if the active generation does not yet have this index. Update `Code.gs`, `D1Sync.gs`, Pages Functions and the schema together before enabling the upgraded site.
+The `faculty_list` count must be **nonzero** before enabling D1-backed reads. Update `Code.gs`, `D1Sync.gs`, Pages Functions, and D1 schema together. The v11 Apps Script uploader is incompatible with the old Pages sync endpoint; the v11 Pages endpoint requires the new schema.
 
 ### Handling duplicated source records
 
@@ -73,7 +73,7 @@ Do not enable the D1 read path until these checks pass. If synchronization fails
 - Multiple **different IDs with the same Google Workspace email do not stop synchronization**. Both Student ID records remain in D1. The conflicted email is omitted from the `student_email` login index so the same Google account cannot access one student's private data arbitrarily.
 - Examine the Apps Script execution log and Script Properties `D1_EMAIL_COLLISION_COUNT` / `D1_EMAIL_COLLISIONS_JSON` (up to 40 entries) to find conflicted addresses and Student IDs. The official UG Thesis source does not need to be edited.
 - Students whose emails are ambiguous cannot use their student account until an administrator verifies a separate unique email or resolves the conflict through an authoritative, controlled override. This is intentional; never select the first matching ID for authorization.
-- Large imports are **resumable**. A run checkpoints its generation and cursor in `D1_PENDING_GENERATION`, `D1_PENDING_CHECKSUM`, and `D1_PENDING_CURSOR` before the Apps Script execution limit; the next scheduled trigger resumes it. A change to the underlying data starts a new generation because the checksum changed. Do not repeatedly run `installD1Sync()`; use `syncD1Now()`.
+- Large imports are **resumable**. A run checkpoints the job identifier, checksum, update cursor and removal cursor in `D1_PENDING_GENERATION`, `D1_PENDING_CHECKSUM`, `D1_PENDING_CURSOR`, and `D1_PENDING_DELETE_CURSOR`. If the source changes mid-import, abandoned temporary rows are cleaned before the new job. Use `syncD1Now()` for manual updates.
 - D1 search-index strings have a 250-character limit. The Apps Script uploader truncates only the denormalized `name` index for unusually long thesis/resource titles; the full original text remains in `data_json` and the snapshot checksum. Other invalid indexes or oversized source records produce a descriptive error before uploading any more batches.
 
 ## Step 4 — Enable fast D1 reads
@@ -96,7 +96,7 @@ If a configured D1 is unexpectedly empty or unavailable, accelerated reads retur
 ## Free-tier and reliability notes
 
 - D1 stores **student, student-email alias, group, faculty, precomputed faculty directory, faculty assignment, role, deadline, and resource** records. It does not expose a public database endpoint or trust client-supplied roles.
-- An unchanged snapshot sends **zero table-row writes** to D1. A changed snapshot currently writes a **complete new generation**; therefore frequent edits can still consume the Free plan's daily D1 write allowance. Monitor Cloudflare usage. For a genuinely high-edit-frequency installation, implement row-level change synchronization before claiming unrestricted free operation.
+- An unchanged snapshot sends **zero D1 data-row writes**. A changed snapshot scans compact current fingerprints and stages/commits **only added, changed and deleted rows**. Small metadata writes still occur for a changed sync. Monitor Cloudflare usage; this is periodic Google Sheets comparison, not event-driven replication.
 - This design reduces the major Google Apps Script bottleneck for students/supervisors. **It is not a substitute for a measured concurrency test of 2,000–3,000 authenticated students**, and it does not provide an uptime guarantee.
 - The deadline workbook currently has some dates without years and may mark entries as “Expired.” The portal faithfully shows the published Day, Deadline and Days Left, rather than inventing a year or date.
 - **Privacy:** D1 is a full additional copy of student and faculty information. Restrict Cloudflare account access, protect the sync secret, and confirm university approval and data-retention policies before migrating real student records.

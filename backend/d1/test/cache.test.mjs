@@ -58,7 +58,7 @@ async function sync(env,records,generation='generation123456789',checksum='a'.re
   };
   assert.equal((await send({mode:'start',checksum,expectedCount:records.length})).status,200);
   assert.equal((await send({mode:'batch',records})).status,200);
-  return send({mode:'commit'});
+  return send({mode:'commit',upserts:records.length,deletes:0});
 }
 
 test('D1 synchronization publishes complete generations only, keeping the previous snapshot during partial imports',async()=>{
@@ -76,11 +76,119 @@ test('D1 synchronization publishes complete generations only, keeping the previo
       method:'POST',headers:{'x-d1-sync-secret':secret},body:JSON.stringify({...body,generation})}),env);
     assert.equal((await send({mode:'start',checksum:'b'.repeat(64),expectedCount:second.length})).status,200);
     assert.equal((await send({mode:'batch',records:second.slice(0,2)})).status,200);
-    assert.equal((await send({mode:'commit'})).status,400);
+    assert.equal((await send({mode:'commit',upserts:second.length,deletes:0})).status,400);
     assert.equal((await readD1Action('resources',{email:'a@g.bracu.ac.bd'},env)).data.items[0].title,'Thesis Template');
     assert.equal((await send({mode:'batch',records:second.slice(2)})).status,200);
-    assert.equal((await send({mode:'commit'})).status,200);
+    assert.equal((await send({mode:'commit',upserts:second.length,deletes:0})).status,200);
     assert.equal((await readD1Action('resources',{email:'a@g.bracu.ac.bd'},env)).data.items[0].title,'New Template');
+  }finally{db.close();}
+});
+
+test('incremental sync writes only changed/new records, deletes removed keys, and retains one active generation',async()=>{
+  const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret,D1_ENABLED:'true'};
+  const send=async(generation,body)=>{
+    const response=await handleD1Sync(new Request('https://portal.example.org/internal/d1-sync',{
+      method:'POST',headers:{'x-d1-sync-secret':secret},
+      body:JSON.stringify({...body,generation}),
+    }),env);
+    return {status:response.status,data:await response.json()};
+  };
+  try{
+    assert.equal((await sync(env,seed,'firstGeneration123456789','a'.repeat(64))).status,200);
+    const before=await db.prepare('SELECT generation,checksum FROM portal_active WHERE id=1').first();
+    const generation='incrementalChanges123456789';
+    const first=await send(generation,{mode:'start',checksum:'b'.repeat(64),expectedCount:seed.length});
+    assert.equal(first.status,200);
+    assert.equal(first.data.existingCount,seed.length);
+    const index=await send(generation,{mode:'index',afterKind:'',afterKey:''});
+    assert.equal(index.data.rows.length,seed.length);
+    const indexAgain=await send(generation,{mode:'index',afterKind:'',afterKey:''});
+    assert.deepEqual(indexAgain.data.rows,index.data.rows);
+    const group=makeRecord('group','T2530001',
+      {...groupA,phaseComments:{...groupA.phaseComments,P2:'Revised supervisor comments'}},
+      {thesisId:'T2530001',stage:groupA.stage});
+    const added=makeRecord('resource','7',{id:'7',phase:'General',title:'New Link'});
+    const partial=await send(generation,{mode:'batch',records:[group]});
+    assert.equal(partial.status,200);
+    const bad=await send(generation,{mode:'commit',upserts:2,deletes:1});
+    assert.equal(bad.status,400);
+    assert.match(bad.data.error,/Incomplete synchronization/);
+    assert.equal((await readD1Action('resources',{email:'a@g.bracu.ac.bd'},env)).data.items[0].id,'5');
+    assert.equal((await readD1Action('student',{email:'a@g.bracu.ac.bd'},env)).data.evaluations
+      .find(item=>item.phase==='P2').comment,'Add tests');
+    assert.equal((await send(generation,{mode:'start',checksum:'b'.repeat(64),expectedCount:seed.length})).status,200);
+    assert.equal((await send(generation,{mode:'batch',records:[added]})).status,200);
+    assert.equal((await send(generation,{mode:'remove',keys:[{kind:'resource',key:'5'}]})).status,200);
+    const committed=await send(generation,{mode:'commit',upserts:2,deletes:1});
+    assert.equal(committed.status,200);
+    assert.deepEqual([committed.data.upserts,committed.data.deletes],[2,1]);
+    const after=await db.prepare('SELECT generation,checksum FROM portal_active WHERE id=1').first();
+    assert.equal(after.generation,before.generation);
+    assert.equal(after.checksum,'b'.repeat(64));
+    const totals=await db.prepare('SELECT COUNT(DISTINCT generation) AS generations,COUNT(*) AS records FROM portal_cache').first();
+    assert.equal(totals.generations,1);
+    assert.equal(totals.records,seed.length);
+    assert.equal(await countSql(db,'portal_sync_runs'),0);
+    assert.equal(await countSql(db,'portal_sync_deletes'),0);
+    assert.deepEqual((await readD1Action('resources',{email:'a@g.bracu.ac.bd'},env)).data.items.map(x=>x.id),['7']);
+    assert.equal((await readD1Action('student',{email:'a@g.bracu.ac.bd'},env)).data.evaluations
+      .find(item=>item.phase==='P2').comment,'Revised supervisor comments');
+    const unchanged=await send('unchangedStart123456789',{mode:'start',checksum:'b'.repeat(64),expectedCount:seed.length});
+    assert.equal(unchanged.data.skip,true);
+    assert.equal(await countSql(db,'portal_sync_runs'),0);
+  }finally{db.close();}
+});
+
+async function countSql(db,table){
+  return (await db.prepare('SELECT COUNT(*) AS n FROM '+table).first()).n;
+}
+
+test('starting a different sync cleans an abandoned partial import without touching the active dataset',async()=>{
+  const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret,D1_ENABLED:'true'};
+  const send=async(generation,body)=>{
+    const response=await handleD1Sync(new Request('https://portal.example.org/internal/d1-sync',{
+      method:'POST',headers:{'x-d1-sync-secret':secret},body:JSON.stringify({...body,generation})}),env);
+    return {status:response.status,data:await response.json()};
+  };
+  try{
+    await sync(env,seed);
+    const oldGen='abandonedImport1234567',newGen='replacementImport1234567';
+    assert.equal((await send(oldGen,{mode:'start',checksum:'b'.repeat(64),expectedCount:seed.length})).status,200);
+    await send(oldGen,{mode:'batch',records:[makeRecord('resource','99',{id:'99',title:'Never published'})]});
+    assert.equal((await countSql(db,'portal_cache')),seed.length+1);
+    assert.equal((await send(newGen,{mode:'start',checksum:'c'.repeat(64),expectedCount:seed.length})).status,200);
+    assert.equal((await countSql(db,'portal_cache')),seed.length);
+    assert.equal((await countSql(db,'portal_sync_runs')),1);
+    assert.equal((await send(oldGen,{mode:'commit',upserts:1,deletes:0})).status,400);
+    assert.equal((await readD1Action('resources',{email:'a@g.bracu.ac.bd'},env)).data.items.length,1);
+  }finally{db.close();}
+});
+
+test('fingerprint keyset pagination covers more than 1,000 records without duplicating or missing keys',async()=>{
+  const db=makeDB(),env={DB:db,D1_SYNC_SECRET:secret};
+  const records=Array.from({length:1005},(_,i)=>makeRecord('student',String(i+22000000),
+    {id:String(i+22000000),name:'Student '+i}));
+  const send=async(generation,body)=>{
+    const response=await handleD1Sync(new Request('https://portal.example.org/internal/d1-sync',{
+      method:'POST',headers:{'x-d1-sync-secret':secret},body:JSON.stringify({...body,generation})}),env);
+    return {status:response.status,data:await response.json()};
+  };
+  try{
+    const first='largeFirstImport12345678',next='largeDeltaImport12345678';
+    assert.equal((await send(first,{mode:'start',checksum:'a'.repeat(64),expectedCount:records.length})).status,200);
+    for(let i=0;i<records.length;i+=50)
+      assert.equal((await send(first,{mode:'batch',records:records.slice(i,i+50)})).status,200);
+    assert.equal((await send(first,{mode:'commit',upserts:records.length,deletes:0})).status,200);
+    assert.equal((await send(next,{mode:'start',checksum:'b'.repeat(64),expectedCount:records.length})).data.existingCount,1005);
+    const page1=(await send(next,{mode:'index',afterKind:'',afterKey:''})).data.rows;
+    assert.equal(page1.length,1000);
+    const last=page1.at(-1);
+    const page2=(await send(next,{mode:'index',afterKind:last.kind,afterKey:last.key})).data.rows;
+    assert.equal(page2.length,5);
+    assert.equal(new Set([...page1,...page2].map(row=>row.kind+'|'+row.key)).size,1005);
+    assert.ok([...page1,...page2].every(row=>/^[a-f0-9]{64}$/.test(row.hash)));
+    assert.equal((await send(next,{mode:'commit',upserts:0,deletes:0})).status,200);
+    assert.equal((await countSql(db,'portal_cache')),1005);
   }finally{db.close();}
 });
 

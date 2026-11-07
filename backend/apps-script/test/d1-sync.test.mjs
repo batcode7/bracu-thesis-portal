@@ -8,6 +8,10 @@ const script=readFileSync(new URL('../Code.gs',import.meta.url),'utf8')+'\n'+rea
 const props={D1_SYNC_URL:'https://bracu-thesis-portal.pages.dev/internal/d1-sync',
   D1_SYNC_SECRET:'example-test-sync-secret-longer-than-32-chars'};
 const calls=[];
+const fakeRecords=new Map(),fakeJobs=new Map();
+let fakeActiveChecksum='';
+const identity=item=>item.kind+'|'+item.key;
+const fakeHash=item=>createHash('sha256').update(JSON.stringify(item)).digest('hex');
 let syncNumber=0,feedback='Review experimental methodology';
 const lock={tryLock:()=>true,releaseLock:()=>{}};
 const ctx=vm.createContext({
@@ -23,7 +27,32 @@ const ctx=vm.createContext({
   },
   UrlFetchApp:{fetch:(_url,request)=>{
     const item=JSON.parse(request.payload);calls.push(item);
-    return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({ok:true,skip:false})};
+    let response={ok:true};
+    if(item.mode==='start'){
+      response.skip=fakeActiveChecksum===item.checksum;
+      if(!response.skip){
+        if(!fakeJobs.has(item.generation))fakeJobs.set(item.generation,{upserts:new Map(),removals:new Set()});
+        response.existingCount=fakeRecords.size;
+      }
+    }else if(item.mode==='index'){
+      const entries=[...fakeRecords.values()].map(row=>({kind:row.kind,key:row.key,hash:fakeHash(row)}))
+        .sort((a,b)=>(a.kind+'|'+a.key).localeCompare(b.kind+'|'+b.key));
+      response.rows=entries.filter(row=>row.kind>item.afterKind||
+        (row.kind===item.afterKind&&row.key>item.afterKey)).slice(0,1000);
+    }else if(item.mode==='batch'){
+      for(const row of item.records)fakeJobs.get(item.generation).upserts.set(identity(row),row);
+    }else if(item.mode==='remove'){
+      for(const key of item.keys)fakeJobs.get(item.generation).removals.add(identity(key));
+    }else if(item.mode==='commit'){
+      const job=fakeJobs.get(item.generation);
+      assert.equal(job.upserts.size,item.upserts);
+      assert.equal(job.removals.size,item.deletes);
+      for(const id of job.removals)fakeRecords.delete(id);
+      for(const [id,row] of job.upserts)fakeRecords.set(id,row);
+      fakeActiveChecksum=calls.findLast(call=>call.generation===item.generation&&call.mode==='start').checksum;
+      fakeJobs.delete(item.generation);
+    }
+    return {getResponseCode:()=>200,getContentText:()=>JSON.stringify(response)};
   }},
 });
 vm.runInContext(script,ctx);
@@ -114,7 +143,7 @@ test('a large snapshot checkpoints and resumes without starting another generati
     ctx.students_=oldStudents;
     if(oldDate===undefined)delete ctx.Date;
     else ctx.Date=oldDate;
-    for(const key of ['D1_PENDING_GENERATION','D1_PENDING_CHECKSUM','D1_PENDING_CURSOR'])delete props[key];
+    for(const key of ['D1_PENDING_GENERATION','D1_PENDING_CHECKSUM','D1_PENDING_CURSOR','D1_PENDING_DELETE_CURSOR'])delete props[key];
   }
 });
 
@@ -140,13 +169,46 @@ test('Apps Script sync publishes changed older rows, with manifest, batches and 
   const startCalls=calls.length;
   const first=ctx.syncD1Now();
   assert.equal(first.changed,true);assert.ok(first.count>0);
-  assert.deepEqual(Array.from(calls.slice(startCalls),call=>call.mode),['start','batch','commit']);
-  assert.equal(calls[startCalls+1].records.find(item=>item.kind==='group').data.phaseComments.P2,'Review experimental methodology');
+  assert.equal(calls[startCalls].mode,'start');
+  assert.equal(calls.at(-1).mode,'commit');
+  const firstChanges=calls.slice(startCalls).flatMap(item=>item.records||[]);
+  assert.equal(firstChanges.find(item=>item.kind==='group').data.phaseComments.P2,'Review experimental methodology');
   const old=ctx.groups_;
   ctx.groups_=()=>old().map(group=>({...group,phaseComments:{...group.phaseComments,P2:'Updated feedback in an old row'}}));
   try{
+    const secondStart=calls.length;
     const second=ctx.syncD1Now();assert.equal(second.changed,true);
-    assert.equal(calls.at(-2).records.find(item=>item.kind==='group').data.phaseComments.P2,'Updated feedback in an old row');
-    assert.notEqual(calls[startCalls].checksum,calls.at(-3).checksum);
+    const latest=calls.slice(secondStart).flatMap(item=>item.records||[]);
+    assert.equal(latest.find(item=>item.kind==='group').data.phaseComments.P2,'Updated feedback in an old row');
+    assert.equal(latest.length,1,'only the modified group must be uploaded');
+    assert.notEqual(calls[startCalls].checksum,calls[secondStart].checksum);
   }finally{ctx.groups_=old;}
+});
+
+test('unchanged source data performs no D1 row writes and starts no new generation',()=>{
+  ctx.syncD1Now(); // Restore the normal fixture after the changed-feedback test.
+  const startAt=calls.length;
+  const result=ctx.syncD1Now();
+  assert.equal(result.synced,true);
+  assert.equal(result.changed,false);
+  assert.deepEqual(calls.slice(startAt).map(call=>call.mode),['start']);
+  assert.equal(props.D1_PENDING_GENERATION,undefined);
+  assert.equal(props.D1_PENDING_DELETE_CURSOR,undefined);
+});
+
+test('removed source students are deleted through the delta rather than copied into a new generation',()=>{
+  const originalStudents=ctx.students_;
+  const startAt=calls.length;
+  ctx.students_=()=>[];
+  try{
+    const response=ctx.syncD1Now();
+    assert.equal(response.changed,true);
+    const updates=calls.slice(startAt).flatMap(call=>call.records||[]);
+    const removals=calls.slice(startAt).flatMap(call=>call.keys||[]);
+    assert.equal(updates.length,0,'unchanged faculty and groups should not be rewritten');
+    assert.deepEqual(removals.map(key=>key.kind).sort(),['student','student_email']);
+    assert.equal(calls.at(-1).upserts,0);
+    assert.equal(calls.at(-1).deletes,2);
+    assert.equal([...fakeRecords.values()].some(record=>record.kind==='student'),false);
+  }finally{ctx.students_=originalStudents;}
 });

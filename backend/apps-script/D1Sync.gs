@@ -1,8 +1,9 @@
 /**
  * Companion file for Code.gs. Add this as a SECOND Apps Script file.
  * Thesis Master stays authoritative; D1 is a replaceable read-only copy.
- * This runs every five minutes, including when old rows or IMPORTRANGE cells
- * change (events for recalculated formulas are not dependable).
+ * Initial synchronization imports the master. Later runs update only records
+ * whose actual content changed, plus new/deleted records. The trigger can be
+ * installed after a successful manual seed and verification.
  */
 function d1Snapshot_() {
   refreshFacultyDirectory_(true);
@@ -89,60 +90,100 @@ function syncD1Now() {
     assert_(secret.length>=32,'Set D1_SYNC_SECRET in Script Properties');
     assert_(/^https:\/\/[a-z0-9.-]+\/internal\/d1-sync$/i.test(url),'D1_SYNC_URL must be a trusted HTTPS portal sync endpoint');
     var records=d1Snapshot_(),checksum=d1Hash_(JSON.stringify(records));
-    // D1 only allows 250 characters in denormalized search indexes. Some
-    // thesis/resource titles are longer, but the complete value remains in
-    // data_json. Keep the checksum based on the authoritative full records,
-    // so an interrupted generation from the previous script can be resumed.
-    var shortened=0;
-    var wireRecords=records.map(function(record){
-      ['email','thesisId','stage'].forEach(function(field){
-        assert_(typeof record[field]==='string'&&record[field].length<=250,
-          'D1 '+field+' index too long for '+record.kind+' '+record.key);
-      });
-      assert_(typeof record.name==='string','Invalid D1 name index for '+record.kind+' '+record.key);
-      assert_(JSON.stringify(record.data).length<=45000,'D1 record data too large for '+record.kind+' '+record.key);
-      if(record.name.length<=250)return record;
-      shortened++;
-      return Object.assign({},record,{name:record.name.slice(0,250)});
-    });
-    if(shortened)Logger.log('D1 shortened '+shortened+' search name indexes to 250 characters; full source values retained');
     var properties=scriptProps_();
     var pendingGeneration=prop_('D1_PENDING_GENERATION');
     var pendingChecksum=prop_('D1_PENDING_CHECKSUM');
     var pendingCursor=Number(prop_('D1_PENDING_CURSOR')||0);
+    var pendingDeleteCursor=Number(prop_('D1_PENDING_DELETE_CURSOR')||0);
     var resuming=pendingChecksum===checksum&&/^[a-zA-Z0-9_-]{16,100}$/.test(pendingGeneration)&&
-      Number.isInteger(pendingCursor)&&pendingCursor>=0&&pendingCursor<=records.length;
+      Number.isInteger(pendingCursor)&&pendingCursor>=0&&pendingCursor<=records.length&&
+      Number.isInteger(pendingDeleteCursor)&&pendingDeleteCursor>=0&&pendingDeleteCursor<=100000;
     var generation=resuming?pendingGeneration:Utilities.getUuid().replace(/-/g,'');
     var cursor=resuming?pendingCursor:0;
+    var deleteCursor=resuming?pendingDeleteCursor:0;
     // Save the manifest before sending anything: an interrupted Apps Script
     // invocation can pick up without allocating another generation.
     properties.setProperty('D1_PENDING_GENERATION',generation);
     properties.setProperty('D1_PENDING_CHECKSUM',checksum);
     properties.setProperty('D1_PENDING_CURSOR',String(cursor));
+    properties.setProperty('D1_PENDING_DELETE_CURSOR',String(deleteCursor));
     var start=d1Send_(url,secret,{mode:'start',generation:generation,checksum:checksum,expectedCount:records.length});
     if(!start.skip){
-      for(var i=cursor;i<records.length;){
+      // Fetch only the compact row fingerprints, never the student/faculty
+      // data itself. Pages are keyset-paginated to avoid oversized responses.
+      var stored={},knownCount=0,afterKind='',afterKey='';
+      if(start.existingCount){
+        for(;;){
+          var page=d1Send_(url,secret,{mode:'index',generation:generation,afterKind:afterKind,afterKey:afterKey});
+          var entries=page.rows||[];
+          assert_(Array.isArray(entries)&&entries.length<=1000,'Invalid D1 fingerprint response');
+          entries.forEach(function(row){
+            assert_(typeof row.kind==='string'&&typeof row.key==='string'&&typeof row.hash==='string','Invalid D1 fingerprint');
+            stored[row.kind+'|'+row.key]=row.hash;
+            knownCount++;
+          });
+          if(entries.length<1000)break;
+          afterKind=entries[entries.length-1].kind;
+          afterKey=entries[entries.length-1].key;
+        }
+      }
+      assert_(knownCount===Number(start.existingCount||0),'Incomplete D1 fingerprint listing');
+      var shortened=0,updates=[],seen={};
+      records.forEach(function(record){
+        ['email','thesisId','stage'].forEach(function(field){
+          assert_(typeof record[field]==='string'&&record[field].length<=250,
+            'D1 '+field+' index too long for '+record.kind+' '+record.key);
+        });
+        assert_(typeof record.name==='string','Invalid D1 name index for '+record.kind+' '+record.key);
+        assert_(JSON.stringify(record.data).length<=45000,'D1 record data too large for '+record.kind+' '+record.key);
+        var canonical=Object.assign({},record,{
+          email:record.email.trim().toLowerCase(),thesisId:record.thesisId.trim().toUpperCase(),
+          stage:record.stage.trim(),name:record.name.trim().slice(0,250)
+        });
+        if(canonical.name.length<record.name.length)shortened++;
+        var identity=canonical.kind+'|'+canonical.key;
+        seen[identity]=true;
+        if(stored[identity]!==d1Hash_(JSON.stringify(canonical)))updates.push(canonical);
+      });
+      var removals=Object.keys(stored).filter(function(identity){return !seen[identity];}).map(function(identity){
+        var split=identity.indexOf('|');return {kind:identity.slice(0,split),key:identity.slice(split+1)};
+      });
+      assert_(cursor<=updates.length&&deleteCursor<=removals.length,'Invalid D1 pending checkpoint; clear pending script properties');
+      if(shortened)Logger.log('D1 shortened '+shortened+' index names; full titles remain in data_json');
+      Logger.log('D1 changes: '+updates.length+' added/updated, '+removals.length+' removed, '+(records.length-updates.length)+' unchanged');
+      for(var i=cursor;i<updates.length;){
         var chunk=[],bytes=0;
-        while(i<records.length&&chunk.length<50){
-          var estimated=JSON.stringify(wireRecords[i]).length+2;
+        while(i<updates.length&&chunk.length<50){
+          var estimated=JSON.stringify(updates[i]).length+2;
           if(chunk.length&&bytes+estimated>400000)break;
-          chunk.push(wireRecords[i++]);bytes+=estimated;
+          chunk.push(updates[i++]);bytes+=estimated;
         }
         d1Send_(url,secret,{mode:'batch',generation:generation,records:chunk});
         properties.setProperty('D1_PENDING_CURSOR',String(i));
-        if(i<records.length&&Date.now()-startedAt>=maxRuntimeMs){
-          Logger.log('D1 sync checkpoint: '+i+'/'+records.length+' records; next trigger resumes generation '+generation);
+        if(Date.now()-startedAt>=maxRuntimeMs){
+          Logger.log('D1 checkpoint: '+i+'/'+updates.length+' changes; next run resumes '+generation);
           return {synced:false,pending:true,imported:i,count:records.length,generation:generation};
         }
       }
-      d1Send_(url,secret,{mode:'commit',generation:generation});
+      for(var j=deleteCursor;j<removals.length;){
+        var keys=removals.slice(j,j+50);
+        d1Send_(url,secret,{mode:'remove',generation:generation,keys:keys});
+        j+=keys.length;
+        properties.setProperty('D1_PENDING_DELETE_CURSOR',String(j));
+        if(Date.now()-startedAt>=maxRuntimeMs){
+          Logger.log('D1 removal checkpoint: '+j+'/'+removals.length);
+          return {synced:false,pending:true,removed:j,count:records.length,generation:generation};
+        }
+      }
+      d1Send_(url,secret,{mode:'commit',generation:generation,upserts:updates.length,deletes:removals.length});
     }
     properties.deleteProperty('D1_PENDING_GENERATION');
     properties.deleteProperty('D1_PENDING_CHECKSUM');
     properties.deleteProperty('D1_PENDING_CURSOR');
+    properties.deleteProperty('D1_PENDING_DELETE_CURSOR');
     properties.setProperty('D1_LAST_CHECKSUM',checksum);
     properties.setProperty('D1_LAST_SYNC_AT',new Date().toISOString());
-    Logger.log('D1 synchronization complete: '+records.length+' records; changed='+!start.skip);
+    Logger.log('D1 synchronization complete: '+records.length+' active records; changed='+!start.skip);
     return {synced:true,count:records.length,changed:!start.skip};
   }finally{lock.releaseLock();}
 }
