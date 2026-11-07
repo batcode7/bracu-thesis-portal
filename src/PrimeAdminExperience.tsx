@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronRight, ClipboardCopy, Clock3, Eye, LoaderCircle, Search, Users, X } from 'lucide-react';
 import { cachedLiveRequest, clearLiveCache, liveRequest } from './live-api';
 import PortalLoading from './PortalLoading';
@@ -9,7 +9,7 @@ type DirectoryRow = { student: { id: string; name: string; email: string; thesis
 type ThesisGroup = { id: string; title: string; type: string; stage: string; primarySupervisor: string; secondarySupervisor?: string; coSupervisor1?: string; coSupervisor2?: string };
 type Detail = DirectoryRow & { members: Array<{ id: string; name: string; email: string }>; marks: Record<string, number | string | null>; evaluations:Array<{id:string;phase:string;semester:string;comment:string|null}> };
 type FacultyRow = { name: string; email: string; initial: string; designation: string; status: string; room: string; aliases: string[]; groups: number; source: string };
-type FacultyResult = { faculty: FacultyRow[]; matched: number; missing: number; updatedAt: string; warning?: string };
+type FacultyResult = { faculty: FacultyRow[]; total: number; offset: number; matched: number; missing: number; updatedAt: string; warning?: string };
 type AcademicSuggestion = {kind:'student'|'faculty'|'group';id:string;label:string;detail:string;email?:string};
 export type RolePreview = { role: 'admin' | 'student' | 'supervisor'; email: string; data: StudentDashboard | SupervisorDashboard | null };
 
@@ -42,6 +42,7 @@ export function PrimeSearch({ token }: { token: string }) {
   const [offset,setOffset]=useState(0),[total,setTotal]=useState(0);
   const [pageSize,setPageSize]=useState<PageSize>(10);
   const [busy, setBusy] = useState(false), [detailBusy, setDetailBusy] = useState(false), [loaded, setLoaded] = useState(false), [error, setError] = useState('');
+  const searchSequence=useRef(0);
   useEffect(()=>{
     const text=query.trim();
     if(picked||text.length<2){setSuggestions([]);setSuggestLoading(false);setSuggestError('');return;}
@@ -56,12 +57,24 @@ export function PrimeSearch({ token }: { token: string }) {
     return()=>{active=false;window.clearTimeout(timeout);};
   },[token,query,picked]);
   const run = async (nextOffset=0,selection:AcademicSuggestion|null=picked,limit:PageSize=pageSize) => {
-    if (busy) return;
-    setBusy(true); setError('');setLoaded(false);
-    try { const result = await liveRequest<{ rows: DirectoryRow[];total:number;offset:number }>(token, 'search', { q:selection?.kind==='faculty'?'':selection?.id||query.trim(),facultyEmail:selection?.kind==='faculty'?selection.id:'', stage, type: kind, offset:nextOffset,limit }); setRows(result.rows);setOffset(result.offset);setTotal(result.total); setLoaded(true); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { setBusy(false); }
+    const sequence=++searchSequence.current;
+    setBusy(true); setError('');
+    try { const result = await liveRequest<{ rows: DirectoryRow[];total:number;offset:number }>(token, 'search', { q:selection?.kind==='faculty'?'':selection?.id||query.trim(),facultyEmail:selection?.kind==='faculty'?selection.id:'', stage, type: kind, offset:nextOffset,limit }); if(sequence===searchSequence.current){setRows(result.rows);setOffset(result.offset);setTotal(result.total);setLoaded(true);} }
+    catch (err) { if(sequence===searchSequence.current)setError(err instanceof Error ? err.message : String(err)); }
+    finally { if(sequence===searchSequence.current)setBusy(false); }
   };
+  useEffect(()=>{
+    // Make the first ten results available as soon as the directory opens.
+    // Further pages and detailed records are fetched only when requested.
+    let active=true;
+    const sequence=++searchSequence.current;
+    setBusy(true);
+    liveRequest<{rows:DirectoryRow[];total:number;offset:number}>(token,'search',{q:'',stage:'All stages',type:'All types',offset:0,limit:10})
+      .then(result=>{if(active&&sequence===searchSequence.current){setRows(result.rows);setTotal(result.total);setOffset(result.offset);setLoaded(true);}})
+      .catch(err=>{if(active&&sequence===searchSequence.current)setError(err instanceof Error?err.message:String(err));})
+      .finally(()=>{if(active&&sequence===searchSequence.current)setBusy(false);});
+    return()=>{active=false;};
+  },[token]);
   const detail = async (studentId: string) => {
     setDetailBusy(true); setError('');setSelected(null);
     try { setSelected(await liveRequest<Detail>(token, 'detail', { studentId })); }
@@ -101,7 +114,8 @@ export function PrimeSearch({ token }: { token: string }) {
     </section>
     {error && <div className="live-error" role="alert">{error}</div>}
     <section className="card prime-search-results"><div className="prime-panel-heading"><div><h3>{loaded ? `${total} matching students` : 'Search results'}</h3><p>{loaded ? `Showing ${total?offset+1:0}–${offset+rows.length} of ${total} matching records.` : 'Start a search to explore verified records.'}</p></div></div>
-      {busy ? <LoadingLines label="Looking through student and group records" /> : loaded ? <div className="tableoverflow"><table className="prime-table"><thead><tr><th>Student</th><th>Thesis / project ID</th><th>Primary supervisor</th><th>Stage</th><th></th></tr></thead><tbody>{rows.map(({ student, group }) => <tr key={student.id}><td><b>{student.name}</b><small>{student.id}</small></td><td><b>{group.id}</b><small>{group.type}</small></td><td>{group.primarySupervisor || 'Not assigned'}</td><td><span className="search-status">{group.stage}</span></td><td><button type="button" className="lightbtn" onClick={() => void detail(student.id)} disabled={detailBusy}>Details <ChevronRight size={14} /></button></td></tr>)}{rows.length === 0 && <tr><td colSpan={5} className="noresults">No records match this search. Try a different student or thesis ID.</td></tr>}</tbody></table></div> : <div className="prime-empty-search"><Search size={27} /><b>Ready when you are.</b><p>Enter a query to retrieve academic records securely.</p></div>}
+      {busy&&loaded&&<div className="prime-suggest-status" role="status"><LoaderCircle size={14} className="prime-spin"/> Updating results…</div>}
+      {loaded ? <div className="tableoverflow"><table className="prime-table"><thead><tr><th>Student</th><th>Thesis / project ID</th><th>Primary supervisor</th><th>Stage</th><th></th></tr></thead><tbody>{rows.map(({ student, group }) => <tr key={student.id}><td><b>{student.name}</b><small>{student.id}</small></td><td><b>{group.id}</b><small>{group.type}</small></td><td>{group.primarySupervisor || 'Not assigned'}</td><td><span className="search-status">{group.stage}</span></td><td><button type="button" className="lightbtn" onClick={() => void detail(student.id)} disabled={detailBusy}>Details <ChevronRight size={14} /></button></td></tr>)}{rows.length === 0 && <tr><td colSpan={5} className="noresults">No records match this search. Try a different student or thesis ID.</td></tr>}</tbody></table></div> : busy ? <LoadingLines label="Looking through student and group records"/> : <div className="prime-empty-search"><Search size={27} /><b>Ready when you are.</b><p>Enter a query to retrieve academic records securely.</p></div>}
     </section>
     {loaded&&<Pagination label="Student search" total={total} page={Math.floor(offset/pageSize)} pageSize={pageSize} disabled={busy} onPageChange={page=>void run(page*pageSize)} onPageSizeChange={size=>{setPageSize(size);void run(0,picked,size);}}/>}
     {detailBusy && <div className="modaloverlay" role="presentation"><section className="modalbox prime-detail-loading" role="status" aria-live="polite"><LoadingLines label="Loading student and thesis details" /></section></div>}
@@ -142,26 +156,38 @@ function FacultyEditCell({row,field,onSave}:{row:FacultyRow;field:EditableFacult
 export function PrimeFacultyList({ token }: { token: string }) {
   const [data,setData]=useState<FacultyResult|null>(null),[query,setQuery]=useState(''),[filter,setFilter]=useState('all');
   const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
-  const [busy,setBusy]=useState(true),[error,setError]=useState(''),[success,setSuccess]=useState('');
-  const refresh=async()=>{const result=await liveRequest<FacultyResult>(token,'facultyList');setData(result);};
-  useEffect(()=>{let active=true;liveRequest<FacultyResult>(token,'facultyList').then(result=>{if(active)setData(result);}).catch(err=>{if(active)setError(err instanceof Error?err.message:String(err));}).finally(()=>{if(active)setBusy(false);});return()=>{active=false;};},[token]);
+  const [busy,setBusy]=useState(true),[error,setError]=useState(''),[success,setSuccess]=useState(''),[revision,setRevision]=useState(0);
+  useEffect(()=>{
+    let active=true;
+    const timer=window.setTimeout(()=>{
+      setBusy(true);
+      liveRequest<FacultyResult>(token,'facultyList',{q:query.trim(),filter,offset:page*pageSize,limit:pageSize})
+        .then(result=>{if(active){setData(result);setError('');}})
+        .catch(err=>{if(active)setError(err instanceof Error?err.message:String(err));})
+        .finally(()=>{if(active)setBusy(false);});
+    },query.trim()?220:0);
+    return()=>{active=false;window.clearTimeout(timer);};
+  },[token,query,filter,page,pageSize,revision]);
   const save=async(row:FacultyRow,field:EditableFacultyField,value:string,expected:string)=>{
     await liveRequest(token,'updateFaculty',{email:row.email,field,value,expected});
     clearLiveCache();
-    await refresh();setSuccess(row.name+': '+field+' saved to Faculty Details.');setError('');
+    // D1 is a synchronized replica: show the successful edit immediately,
+    // without replacing it with an older snapshot from the next read.
+    setData(current=>current?{...current,faculty:current.faculty.map(item=>item.email===row.email?{...item,[field]:value}:item)}:current);
+    setSuccess(row.name+': '+field+' saved. The directory index updates on the next synchronization.');setError('');
   };
-  const rows=useMemo(()=>(data?.faculty||[]).filter(row=>(filter==='all'||(filter==='verified'?!!row.email:!row.email))&&[row.name,row.email,row.initial,row.designation,row.room,...row.aliases].some(value=>value.toLowerCase().includes(query.toLowerCase().trim()))),[data,query,filter]);
   useEffect(()=>setPage(0),[query,filter,pageSize]);
-  const visible=rows.slice(page*pageSize,(page+1)*pageSize);
-  return <div className="prime-stack"><section className="prime-intro"><div><span className="eyebrow">FACULTY DIRECTORY</span><h2>Faculty directory</h2><p>Verified names and contacts from the official Faculty Details sheet. Double-click an editable cell to update it.</p></div><button type="button" className="lightbtn" disabled={busy} onClick={()=>{setBusy(true);void refresh().catch(e=>setError(String(e))).finally(()=>setBusy(false));}}>Refresh</button></section>
+  const visible=data?.faculty||[];
+  return <div className="prime-stack"><section className="prime-intro"><div><span className="eyebrow">FACULTY DIRECTORY</span><h2>Faculty directory</h2><p>Verified names and contacts from the official Faculty Details sheet. Double-click an editable cell to update it.</p></div><button type="button" className="lightbtn" disabled={busy} onClick={()=>setRevision(value=>value+1)}>Refresh</button></section>
     {error&&<div className="live-error" role="alert">{error}</div>}{success&&<div className="infobar" role="status">{success}</div>}
     {data?.warning&&<div className="infobar">{data.warning}</div>}
     {data&&<div className="prime-directory-stats"><div><b>{data.matched}</b><span>Verified faculty</span></div><div><b>{data.missing}</b><span>Unmatched or ambiguous names</span></div><div><Clock3 size={17}/><span>Updated: {friendlyDate(data.updatedAt)}</span></div></div>}
     <section className="card prime-panel"><div className="prime-directory-controls"><label className="searchbox"><Search size={17}/><input placeholder="Search names, initials or emails…" aria-label="Search faculty directory" value={query} onChange={e=>setQuery(e.target.value)}/></label><select aria-label="Faculty identity filter" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All faculty</option><option value="verified">Verified directory</option><option value="missing">Unmatched names</option></select></div>
-      {busy?<LoadingLines label="Refreshing the faculty directory"/>:<div className="tableoverflow"><table className="prime-table faculty-table"><thead><tr><th>Initial</th><th>Faculty name</th><th>Designation</th><th>Status</th><th>Room</th><th>University email</th><th>Groups</th></tr></thead><tbody>{visible.map((row,index)=><tr key={row.email||row.name+'-'+index}>
+      {busy&&<div className="prime-suggest-status" role="status"><LoaderCircle size={14} className="prime-spin"/> Loading faculty records…</div>}
+      {data?<div className="tableoverflow"><table className="prime-table faculty-table"><thead><tr><th>Initial</th><th>Faculty name</th><th>Designation</th><th>Status</th><th>Room</th><th>University email</th><th>Groups</th></tr></thead><tbody>{visible.map((row,index)=><tr key={row.email||row.name+'-'+index}>
         <td><FacultyEditCell row={row} field="initial" onSave={save}/></td><td><b>{row.name}</b>{!row.email&&<small className="faculty-unmatched">{row.source}</small>}{row.aliases.length>0&&<small>Also known as: {row.aliases.join(', ')}</small>}</td><td><FacultyEditCell row={row} field="designation" onSave={save}/></td><td>{row.status||'—'}</td><td><FacultyEditCell row={row} field="room" onSave={save}/></td><td><FacultyEditCell row={row} field="email" onSave={save}/></td><td><b>{row.groups}</b></td>
-      </tr>)}{!rows.length&&<tr><td colSpan={7} className="noresults">No matching faculty records.</td></tr>}</tbody></table></div>}
-      {!busy&&<Pagination label="Faculty directory" total={rows.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}/>}
+      </tr>)}{!visible.length&&<tr><td colSpan={7} className="noresults">No matching faculty records.</td></tr>}</tbody></table></div>:<LoadingLines label="Loading the first faculty records"/>}
+      {data&&<Pagination label="Faculty directory" total={data.total} page={page} pageSize={pageSize} disabled={busy} onPageChange={setPage} onPageSizeChange={setPageSize}/>}
       <p className="prime-footnote">Edits require administrator permissions and are verified against the current source row. Ambiguous names never grant access. Updates are audited in a private edit log.</p>
     </section></div>;
 }

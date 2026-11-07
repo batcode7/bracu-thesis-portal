@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Check, ChevronRight, ClipboardCopy, GraduationCap, Mail, MapPin, MessageSquareText, Search, Users, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Check, ChevronRight, ClipboardCopy, GraduationCap, LoaderCircle, Mail, MapPin, MessageSquareText, Search, Users, X } from 'lucide-react';
 import type { SupervisorDashboard } from './portal-api';
+import { cachedLiveRequest, liveRequest } from './live-api';
 import type { ThesisGroup } from './data';
 import { studentPhase } from './StudentExperience';
 import { Pagination, type PageSize } from './Pagination';
@@ -33,8 +34,16 @@ function visiblePhases(stage:string):Array<'P1'|'P2'|'Defense'> {
   return current?all.slice(0,all.indexOf(current)+1):[];
 }
 
-function GroupDetails({group,students,onClose}:{group:GroupRecord;students:AssignedStudent[];onClose:()=>void}) {
+function GroupDetails({group,students,onClose,abstractText,onRequestAbstract}:{group:GroupRecord;students:AssignedStudent[];onClose:()=>void;abstractText?:string;onRequestAbstract?:()=>Promise<void>}) {
   const [copied,setCopied]=useState(false),[emailsCopied,setEmailsCopied]=useState(false),[copyError,setCopyError]=useState('');
+  const [abstractOpen,setAbstractOpen]=useState(false),[abstractLoading,setAbstractLoading]=useState(false),[abstractError,setAbstractError]=useState('');
+  const toggleAbstract=()=>{
+    if(abstractOpen){setAbstractOpen(false);return;}
+    setAbstractOpen(true);
+    if(abstractText!==undefined||group.abstract!==undefined||!onRequestAbstract)return;
+    setAbstractLoading(true);setAbstractError('');
+    void onRequestAbstract().catch(error=>setAbstractError(error instanceof Error?error.message:'Abstract could not be loaded')).finally(()=>setAbstractLoading(false));
+  };
   useEffect(()=>{
     const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onClose();};
     window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
@@ -51,7 +60,7 @@ function GroupDetails({group,students,onClose}:{group:GroupRecord;students:Assig
   return <div className="modaloverlay" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
     <section className="modalbox supervisor-detail" role="dialog" aria-modal="true" aria-labelledby="supervisor-dialog-heading">
       <div className="modalheader"><div><span className="eyebrow">ASSIGNED RESEARCH GROUP</span><h2 id="supervisor-dialog-heading">{group.title||'Research title not listed'}</h2></div><button type="button" className="iconbtn" aria-label="Close group details" onClick={onClose}><X size={20}/></button></div>
-      <section className="supervisor-abstract"><h3>Abstract</h3><p>{group.abstract?.trim()||'No abstract has been recorded for this group yet.'}</p></section>
+      <section className="supervisor-abstract"><div className="supervisor-abstract-heading"><h3>Abstract</h3><button type="button" className="lightbtn" onClick={toggleAbstract} aria-expanded={abstractOpen}>{abstractOpen?'Hide abstract':'Show abstract'} <ChevronRight size={14}/></button></div>{abstractOpen&&(abstractLoading?<p role="status"><LoaderCircle size={15} className="prime-spin"/> Loading abstract…</p>:abstractError?<p role="alert">{abstractError}</p>:<p>{(abstractText??group.abstract)?.trim()||'No abstract has been recorded for this group yet.'}</p>)}</section>
       <div className="supervisor-modal-id"><span>{group.type} ID</span><strong>{group.id}</strong><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(group.id);setCopied(true);window.setTimeout(()=>setCopied(false),1800);}catch{setCopied(false);}}} aria-label="Copy group ID">{copied?<Check size={15}/>:<ClipboardCopy size={15}/>} {copied?'Copied':'Copy ID'}</button></div>
       <div className="supervisor-modal-summary"><span><b>Stage</b>{group.stage}</span><span><b>Type</b>{group.type}</span><span><b>Students</b>{students.length}</span></div>
       <div className="supervisor-detail-section"><h3>Supervision team</h3><div className="supervisor-team-grid">{team.map(item=>{
@@ -75,37 +84,77 @@ function GroupDetails({group,students,onClose}:{group:GroupRecord;students:Assig
   </div>;
 }
 
-export default function SupervisorExperience({data}:{data:SupervisorDashboard}) {
+export default function SupervisorExperience({data,token}:{data:SupervisorDashboard;token?:string}) {
   const [query,setQuery]=useState('');
   const [stage,setStage]=useState<StageFilter>('all');
   const [type,setType]=useState<TypeFilter>('all');
   const [myRole,setMyRole]=useState<RoleFilter>('all');
   const [page,setPage]=useState(0),[pageSize,setPageSize]=useState<PageSize>(10);
   const [selectedId,setSelectedId]=useState<string|null>(null);
-  const distinctGroups=useMemo(()=>Array.from(new Map(data.groups.map(group=>[group.id,group])).values()),[data.groups]);
+  const paginated=!!token&&data.totalGroups!==undefined;
+  const [pageData,setPageData]=useState(data),[loadingPage,setLoadingPage]=useState(false),[pageError,setPageError]=useState(''),[reload,setReload]=useState(0);
+  const [abstracts,setAbstracts]=useState<Record<string,string>>({});
+  const initialized=useRef(false);
+  useEffect(()=>{setPageData(data);initialized.current=false;},[data]);
+  useEffect(()=>{
+    if(!paginated||!token)return;
+    if(!initialized.current){initialized.current=true;return;}
+    let active=true;
+    const timer=window.setTimeout(()=>{
+      setLoadingPage(true);setPageError('');
+      liveRequest<SupervisorDashboard>(token,'supervisor',{q:query.trim(),stage,type,myRole,offset:page*pageSize,limit:pageSize})
+        .then(result=>{if(active){setPageData(result);setSelectedId(null);}})
+        .catch(error=>{if(active)setPageError(error instanceof Error?error.message:'Unable to load groups');})
+        .finally(()=>{if(active)setLoadingPage(false);});
+    },query.trim()?250:0);
+    return()=>{active=false;window.clearTimeout(timer);};
+  },[paginated,token,query,stage,type,myRole,page,pageSize,reload]);
+  useEffect(()=>{
+    if(!paginated||!token||!pageData.groups.length)return;
+    let active=true;
+    // Defer nonessential abstracts until the visible group page has rendered.
+    // A single scoped D1 request prefetches the page, rather than one request per group.
+    const timer=window.setTimeout(()=>{
+      cachedLiveRequest<{abstracts:Record<string,string>}>(token,'groupAbstracts',
+        {groupIds:pageData.groups.slice(0,20).map(group=>group.id)},120000)
+        .then(result=>{if(active)setAbstracts(current=>({...current,...result.abstracts}));})
+        .catch(()=>{/* The Show abstract button can retry an individual record. */});
+    },400);
+    return()=>{active=false;window.clearTimeout(timer);};
+  },[paginated,token,pageData.groups]);
+  const fetchAbstract=async(groupId:string)=>{
+    if(!token)return;
+    const result=await liveRequest<{abstract:string}>(token,'groupAbstract',{groupId});
+    setAbstracts(current=>({...current,[groupId]:result.abstract}));
+  };
+  const distinctGroups=useMemo(()=>Array.from(new Map(pageData.groups.map(group=>[group.id,group])).values()),[pageData.groups]);
   const studentMap=useMemo(()=>{
     const map=new Map<string,AssignedStudent[]>();
-    data.students.forEach(student=>{const list=map.get(student.thesisId)||[];list.push(student);map.set(student.thesisId,list);});
+    pageData.students.forEach(student=>{const list=map.get(student.thesisId)||[];list.push(student);map.set(student.thesisId,list);});
     return map;
-  },[data.students]);
+  },[pageData.students]);
   const groups=useMemo(()=>[...distinctGroups].sort((a,b)=>a.id.localeCompare(b.id)).filter(group=>{
+    if(paginated)return true; // The database already applied the filters before paging.
     if(!matchesStage(group,stage)||type!=='all'&&group.type!==type||myRole!=='all'&&!group.myRoles?.includes(myRole))return false;
     const text=query.toLowerCase().trim();
     const students=studentMap.get(group.id)||[];
     return !text||[group.id,group.title,group.type,group.stage,group.primarySupervisor,group.secondarySupervisor,group.coSupervisor1,group.coSupervisor2,...students.flatMap(s=>[s.id,s.name,s.email])].some(value=>String(value||'').toLowerCase().includes(text));
-  }),[distinctGroups,studentMap,query,stage,type,myRole]);
-  const matchingStudents=new Set(groups.flatMap(group=>(studentMap.get(group.id)||[]).map(s=>s.id))).size;
+  }),[distinctGroups,studentMap,query,stage,type,myRole,paginated]);
+  const matchingStudents=paginated?(pageData.totalStudents||0):new Set(groups.flatMap(group=>(studentMap.get(group.id)||[]).map(s=>s.id))).size;
   useEffect(()=>setPage(0),[query,stage,type,myRole,pageSize]);
-  const visibleGroups=groups.slice(page*pageSize,(page+1)*pageSize);
+  const visibleGroups=paginated?groups:groups.slice(page*pageSize,(page+1)*pageSize);
+  const totalGroups=paginated?(pageData.totalGroups||0):groups.length;
   const selected=distinctGroups.find(group=>group.id===selectedId);
   const reset=()=>{setQuery('');setStage('all');setType('all');setMyRole('all');};
   return <div className="supervisor-workspace">
     <section className="supervisor-intro"><div><span className="eyebrow">ASSIGNED RESEARCH</span><h2>Groups under your supervision</h2></div></section>
-    <div className="supervisor-stats"><div className="card"><span><GraduationCap size={17}/> Total groups</span><strong>{groups.length}</strong></div><div className="card"><span><Users size={17}/> Total students</span><strong>{matchingStudents}</strong></div></div>
+    <div className="supervisor-stats"><div className="card"><span><GraduationCap size={17}/> Total groups</span><strong>{totalGroups}</strong></div><div className="card"><span><Users size={17}/> Total students</span><strong>{matchingStudents}</strong></div></div>
     <section className="card supervisor-groups-panel"><div className="supervisor-filters"><label className="supervisor-search"><Search size={17}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search group ID, title or student…" aria-label="Search supervised groups" /></label><div className="supervisor-filter-fields"><label><span>Current stage</span><select value={stage} onChange={event=>setStage(event.target.value as StageFilter)}>{stageFilters.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label><span>Research type</span><select value={type} onChange={event=>setType(event.target.value as TypeFilter)}><option value="all">All types</option><option value="Thesis">Thesis</option><option value="Project">Project</option><option value="Internship">Internship</option></select></label><label><span>My role</span><select value={myRole} onChange={event=>setMyRole(event.target.value as RoleFilter)}><option value="all">All roles</option><option value="Supervisor">Supervisor</option><option value="Co-Supervisor">Co-Supervisor</option></select></label></div></div>
+      {loadingPage&&<div className="supervisor-fetch-status" role="status"><LoaderCircle size={15} className="prime-spin"/> Updating research groups…</div>}
+      {pageError&&<div className="live-error" role="alert">{pageError} <button type="button" onClick={()=>setReload(value=>value+1)}>Retry</button></div>}
       {groups.length?<div className="supervisor-group-list"><div className="supervisor-column-head"><span>Thesis / group</span><span>Students</span><span>Current stage</span><span>Type</span><span>My role</span><span></span></div>{visibleGroups.map(group=><article key={group.id} className="supervisor-group-row"><div className="supervisor-group-primary"><strong>{group.id}</strong><small>{group.title||'Research title not recorded'}</small></div><div className="supervisor-group-count"><Users size={15}/><strong>{new Set((studentMap.get(group.id)||[]).map(s=>s.id)).size}</strong><span className="supervisor-mobile-caption">students</span></div><div><span className={`supervisor-stage-badge ${group.stage.toLowerCase()==='completed'?'complete':''}`}>{group.stage}</span></div><div><span className="supervisor-type-badge">{group.type}</span></div><div className="supervisor-my-role">{group.myRoles?.join(' & ')||'—'}</div><button type="button" className="supervisor-view-button" onClick={()=>setSelectedId(group.id)}>Details <ChevronRight size={16}/></button></article>)}</div>:<div className="supervisor-no-results"><Search size={24}/><strong>No groups match these filters</strong><p>Try a different stage, type, role, or search term.</p><button type="button" onClick={reset}>Clear filters <ArrowRight size={14}/></button></div>}
-      <Pagination label="Supervised groups" total={groups.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize}/>
+      <Pagination label="Supervised groups" total={totalGroups} page={page} pageSize={pageSize} disabled={loadingPage} onPageChange={setPage} onPageSizeChange={setPageSize}/>
     </section>
-    {selected&&<GroupDetails key={selected.id} group={selected} students={studentMap.get(selected.id)||[]} onClose={()=>setSelectedId(null)}/>}
+    {selected&&<GroupDetails key={selected.id} group={selected} students={studentMap.get(selected.id)||[]} onClose={()=>setSelectedId(null)} abstractText={abstracts[selected.id]} onRequestAbstract={token?()=>fetchAbstract(selected.id):undefined}/>}
   </div>;
 }

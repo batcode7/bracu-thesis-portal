@@ -6,8 +6,9 @@ This is a **deployment guide**, not an already-live migration. The application s
 
 - **Google Sheets stays authoritative.** Edits to old *or* new rows, student names, group assignments, comments, scores, faculty details, deadlines, and resource links are included in each synchronized snapshot.
 - A 5-minute Apps Script time trigger scans the Thesis Master (including its `Resources` tab) and the `Deadlines and Links` workbook (deadlines only). A SHA-256 snapshot checksum avoids rewriting unchanged data; however it still checks the D1 active checksum, so restoring or replacing a database is detected.
-- Cloudflare Pages Functions read student dashboards, supervisor dashboards, account roles, deadlines and resources **directly from D1**. This removes their per-request dependency on the Apps Script execution limit.
-- The master-sheet search, administrator overview, faculty edits, role grants, announcements, and historical index sync remain on the authenticated Apps Script backend. They are low-volume operations, but do not have D1-level scale yet.
+- Cloudflare Pages Functions read student dashboards, **paginated faculty dashboards**, student search/results, student/group details, the faculty directory, autocomplete suggestions, account roles, deadlines and resources **directly from D1**.
+- Initial directory and faculty pages retrieve only 10 records; later pages are fetched on demand. Group abstracts are omitted from the initial faculty group listing and are prefetched separately after the first page renders, then revealed only when requested.
+- Faculty edits, role grants, announcements, historical index sync, and other state-changing operations still use the authenticated Apps Script backend. An administrative update to the authoritative sheet is reflected in D1 after synchronization, not instantly.
 - Snapshot activation happens only after all batches have been stored; readers see the last complete generation during a partial/failing update. The previous three successful generations are retained for cleanup safety.
 - Normal synchronization lag is approximately 0–5 minutes **plus the trigger's processing time**. It is not instant. Google may delay scheduled triggers. A temporarily unavailable upstream sheet prevents a successful new snapshot; the previous D1 generation stays available.
 
@@ -15,7 +16,7 @@ This is a **deployment guide**, not an already-live migration. The application s
 
 In **Cloudflare** create a D1 database, for example `bracu_thesis_cache`. On the Cloudflare Pages project for `bracu-thesis-portal.pages.dev`, add a **D1 database binding** named exactly `DB`, targeting that database.
 
-Apply [`backend/d1/schema.sql`](../backend/d1/schema.sql). Using Wrangler on a machine authenticated to your Cloudflare account:
+Apply [`backend/d1/schema.sql`](../backend/d1/schema.sql). **Run the updated schema even if D1 already exists:** it safely adds the optional name index used by paginated directory reads. Using Wrangler on a machine authenticated to your Cloudflare account:
 
 ```bash
 npx wrangler d1 execute bracu_thesis_cache --remote --file backend/d1/schema.sql
@@ -64,6 +65,8 @@ GROUP BY kind;
 
 Do not enable the D1 read path until these checks pass. If synchronization fails, investigate Apps Script execution logs and the Cloudflare Pages Function logs. The prior active generation remains intact.
 
+**For an existing D1 installation upgrading to paginated faculty reads:** The new Apps Script `D1Sync.gs` exports an additional `faculty_list` record kind. After running the upgraded synchronization, verify the query above shows a **nonzero `faculty_list` count**. The new faculty directory endpoint deliberately returns a configuration error if the active generation does not yet have this index. Update `Code.gs`, `D1Sync.gs`, Pages Functions and the schema together before enabling the upgraded site.
+
 ### Handling duplicated source records
 
 - **Student ID is the immutable record key.** If the same Student ID appears twice in Thesis Master, synchronization intentionally fails; correct the upstream import formula before trying again.
@@ -85,12 +88,14 @@ Verify with actual authorized university accounts:
 4. A student in P2 sees only **General + P2** deadlines, including submission hyperlinks; supervisors and administrators see all stage tabs.
 5. Changing an existing Thesis Master comment or faculty assignment eventually appears in D1 after the next successful sync.
 6. New administrator grants can take one synchronization interval to appear in D1-backed login/role switching. Their write permissions are always checked against the live Apps Script role list.
+7. Faculty directory shows the first 10 records promptly, with search/filter results and totals computed server-side. Student search also starts with 10 records and retrieves the next page only when requested.
+8. Faculty group totals reflect every matching group, while only the selected page's group/student records are sent to the browser. Opening a group shows a collapsed abstract; the active page's abstracts are fetched securely afterward.
 
-If a configured D1 is unexpectedly empty or unavailable, the five high-volume actions return an explicit error rather than flooding Google Apps Script with fallback requests. Set `D1_ENABLED=false` (and redeploy) to intentionally revert to the previous Apps Script read path while investigating.
+If a configured D1 is unexpectedly empty or unavailable, accelerated reads return an explicit error rather than flooding Google Apps Script with fallback requests. Set `D1_ENABLED=false` (and redeploy) to intentionally revert to the previous Apps Script read path while investigating. This is a **degraded mode**: it is substantially slower and must not be used as a performance benchmark.
 
 ## Free-tier and reliability notes
 
-- D1 stores **student, student-email alias, group, faculty, faculty assignment, role, deadline, and resource** records. It does not expose a public database endpoint or trust client-supplied roles.
+- D1 stores **student, student-email alias, group, faculty, precomputed faculty directory, faculty assignment, role, deadline, and resource** records. It does not expose a public database endpoint or trust client-supplied roles.
 - An unchanged snapshot sends **zero table-row writes** to D1. A changed snapshot currently writes a **complete new generation**; therefore frequent edits can still consume the Free plan's daily D1 write allowance. Monitor Cloudflare usage. For a genuinely high-edit-frequency installation, implement row-level change synchronization before claiming unrestricted free operation.
 - This design reduces the major Google Apps Script bottleneck for students/supervisors. **It is not a substitute for a measured concurrency test of 2,000–3,000 authenticated students**, and it does not provide an uptime guarantee.
 - The deadline workbook currently has some dates without years and may mark entries as “Expired.” The portal faithfully shows the published Day, Deadline and Days Left, rather than inventing a year or date.

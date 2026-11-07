@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-For production static build:
+For a demo static build:
 
 ```bash
 npm run build
@@ -17,9 +17,13 @@ npm run build
 
 The compiled site is in `dist/`.
 
+For the **live** university portal, set `VITE_PORTAL_MODE=live` and the public `VITE_GOOGLE_CLIENT_ID` in your Cloudflare Pages build environment. The default build without these settings is intentionally a demo.
+
+**Current performance upgrade:** See [`docs/PERFORMANCE_UPGRADE.md`](docs/PERFORMANCE_UPGRADE.md). D1 now serves paginated faculty directories, student search, student/group details, suggestions and the faculty dashboard. The group list is initially limited to 10, and long abstracts are collapsed and fetched separately after the first screen appears. **Deploy the updated Pages code, `Code.gs` and `D1Sync.gs`, rerun the D1 snapshot, and verify the `faculty_list` index** before expecting these changes on the live site.
+
 To deploy from a **private GitHub repository into Cloudflare Pages**, use **[`docs/DEPLOY_PAGES_GITHUB.md`](docs/DEPLOY_PAGES_GITHUB.md)**. The same Pages project serves the React frontend and authenticated `/v1/*` Pages Functions. Your existing Google Apps Script deployment remains the private data gateway. Keep the preview in `VITE_PORTAL_MODE=demo` until the backend, OAuth origins, and authorized Google identities have been tested. Detailed data integration is documented in [`backend/README.md`](backend/README.md).
 
-**Latest upgrade:** See [`docs/UPGRADE_V7.md`](docs/UPGRADE_V7.md) for verified code changes, source-sheet editing safeguards, the secure session-cookie migration, faculty name normalization, synchronization behavior, and exact deployment checks. This release requires deploying a new version of the existing Apps Script Web app before updating the live frontend.
+**Earlier session and faculty upgrade:** See [`docs/UPGRADE_V7.md`](docs/UPGRADE_V7.md) for verified code changes, source-sheet editing safeguards, the secure session-cookie migration, faculty name normalization, synchronization behavior, and exact deployment checks.
 
 **D1 + role/deadline upgrade:** See **[`docs/D1_SETUP.md`](docs/D1_SETUP.md)** for the latest roll-out checklist. The live portal has one **Admin** role (all admins can appoint other admins), multi-role account switching, searchable role preview from the overview, live academic deadlines/resources, and an optional Cloudflare D1 read replica. An Apps Script scheduled sync captures changes to old rows too. The D1 fast path requires a one-time database/binding/secret setup. The original Pages + Apps Script setup still works without D1.
 

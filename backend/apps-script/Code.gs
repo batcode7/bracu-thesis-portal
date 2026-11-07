@@ -683,7 +683,15 @@ function request_(body) {
     var facultyWarning='';
     try{refreshFacultyDirectory_(false);}catch(_){facultyWarning='Automatic faculty refresh unavailable; showing the last verified directory.';}
     var listing=facultyList_(groups_());
-    return {faculty:listing,updatedAt:prop_('FACULTY_AUTO_UPDATED',''),warning:facultyWarning,matched:listing.filter(function(f){return !!f.email;}).length,missing:listing.filter(function(f){return !f.email;}).length};
+    var facQuery=norm_(p.q||'');assert_(facQuery.length<=120,'Faculty search text too long');
+    var facFilter=String(p.filter||'all');assert_(['all','verified','missing'].indexOf(facFilter)>=0,'Invalid faculty filter');
+    var facOffset=Math.max(0,Number(p.offset)||0),facLimit=p.limit===undefined?10:Number(p.limit);
+    assert_(Number.isInteger(facOffset)&&facOffset<=100000&&[10,20,50,100].indexOf(facLimit)>=0,'Invalid faculty page');
+    var filtered=listing.filter(function(f){return (facFilter==='all'||(facFilter==='verified'?!!f.email:!f.email))&&
+      (!facQuery||[f.name,f.email,f.initial,f.designation,f.room].concat(f.aliases||[]).some(function(field){return norm_(field).indexOf(facQuery)>=0;}));});
+    return {faculty:filtered.slice(facOffset,facOffset+facLimit),total:filtered.length,offset:facOffset,
+      updatedAt:prop_('FACULTY_AUTO_UPDATED',''),warning:facultyWarning,
+      matched:listing.filter(function(f){return !!f.email;}).length,missing:listing.filter(function(f){return !f.email;}).length};
   }
   try{refreshFacultyDirectory_(false);}catch(_){/* Retain last verified snapshot if the source is temporarily unavailable. */}
   var studentRows=students_(),groupRows=groups_(),role=role_(email,studentRows);
@@ -699,7 +707,28 @@ function request_(body) {
       designation:account?account.designation||'':'',room:account?account.room||'':''};
   }
   if(action==='student'){assert_(roles_(email,studentRows).indexOf('student')>=0,'Not authorized for this action');return studentDashboard_(email,studentRows,groupRows);}
-  if(action==='supervisor'){assert_(roles_(email,studentRows).indexOf('supervisor')>=0,'Not authorized for this action');return supervisorDashboard_(email,studentRows,groupRows);}
+  if(action==='supervisor'){
+    assert_(roles_(email,studentRows).indexOf('supervisor')>=0,'Not authorized for this action');
+    var dashboard=supervisorDashboard_(email,studentRows,groupRows);
+    if(p.limit===undefined)return dashboard;
+    var supLimit=Number(p.limit),supOffset=Number(p.offset||0),supQuery=norm_(p.q||'');
+    assert_([10,20,50,100].indexOf(supLimit)>=0&&Number.isInteger(supOffset)&&supOffset>=0&&supOffset<=100000&&supQuery.length<=120,'Invalid supervisor page');
+    var supStage=String(p.stage||'all'),supType=String(p.type||'all'),supRole=String(p.myRole||'all');
+    assert_(['all','P1','P2','Defense','Completed','Deferred'].indexOf(supStage)>=0&&['all','Thesis','Project','Internship'].indexOf(supType)>=0&&['all','Supervisor','Co-Supervisor'].indexOf(supRole)>=0,'Invalid supervisor filter');
+    var filteredGroups=dashboard.groups.filter(function(g){
+      var current=stageBucket_(g.stage);
+      if(supStage!=='all'&&(supStage==='Deferred'?norm_(g.stage)!=='deferred':current!==supStage))return false;
+      if(supType!=='all'&&g.type!==supType)return false;
+      if(supRole!=='all'&&(g.myRoles||[]).indexOf(supRole)<0)return false;
+      return !supQuery||[g.id,g.title,g.type,g.stage,g.primarySupervisor,g.secondarySupervisor,g.coSupervisor1,g.coSupervisor2].concat(
+        dashboard.students.filter(function(s){return s.thesisId===g.id;}).reduce(function(a,s){return a.concat([s.id,s.name,s.email]);},[])).some(function(v){return norm_(v).indexOf(supQuery)>=0;});
+    }).sort(function(a,b){return a.id.localeCompare(b.id);});
+    var pageGroups=filteredGroups.slice(supOffset,supOffset+supLimit).map(function(g){var slim=Object.assign({},g);delete slim.abstract;return slim;});
+    var pageIds={};pageGroups.forEach(function(g){pageIds[g.id]=true;});
+    var matchingIds={};filteredGroups.forEach(function(g){matchingIds[g.id]=true;});
+    return {supervisorEmail:email,groups:pageGroups,students:dashboard.students.filter(function(s){return !!pageIds[s.thesisId];}),
+      totalGroups:filteredGroups.length,totalStudents:dashboard.students.filter(function(s){return !!matchingIds[s.thesisId];}).length,offset:supOffset};
+  }
   if(action==='deadlines'){
     var entries=academicInformation_().deadlines;
     if(role==='student'){
@@ -711,6 +740,29 @@ function request_(body) {
     return {entries:entries};
   }
   if(action==='resources')return {items:academicInformation_().resources};
+  if(action==='groupAbstract'){
+    var abstractId=String(p.groupId||'').trim();assert_(abstractId&&abstractId.length<=100,'Invalid group ID');
+    var abstractGroup=groupRows.filter(function(g){return g.id===abstractId;})[0];assert_(abstractGroup,'Group not found');
+    var authorizedGroup=roles_(email,studentRows).indexOf('admin')>=0||
+      (roles_(email,studentRows).indexOf('supervisor')>=0&&facultyGroups_(email,groupRows).some(function(g){return g.id===abstractId;}))||
+      studentRows.some(function(s){return s.thesisId===abstractId&&(s.email===email||(s.aliases||[]).indexOf(email)>=0);});
+    assert_(authorizedGroup,'Not authorized for this group');
+    return {groupId:abstractId,abstract:String(abstractGroup.abstract||'')};
+  }
+  if(action==='groupAbstracts'){
+    var requested=p.groupIds;
+    assert_(Array.isArray(requested)&&requested.length<=20&&requested.every(function(id){return typeof id==='string'&&id.length>0&&id.length<=100;}),'Invalid group IDs');
+    var adminAllowed=roles_(email,studentRows).indexOf('admin')>=0;
+    var assignedGroupIds={};
+    if(!adminAllowed&&roles_(email,studentRows).indexOf('supervisor')>=0)facultyGroups_(email,groupRows).forEach(function(g){assignedGroupIds[g.id]=true;});
+    var ownStudent=studentRows.filter(function(s){return s.email===email||(s.aliases||[]).indexOf(email)>=0;})[0];
+    var abstracts={};requested.forEach(function(id){
+      assert_(adminAllowed||assignedGroupIds[id]||ownStudent&&ownStudent.thesisId===id,'Not authorized for one or more groups');
+      var group=groupRows.filter(function(g){return g.id===id;})[0];
+      if(group)abstracts[id]=String(group.abstract||'');
+    });
+    return {abstracts:abstracts};
+  }
   if(action==='suggest'){permission_(role,['admin']);return suggestAcademic_(p.q,studentRows,groupRows,p.kind);}
   if(action==='search'){permission_(role,['admin']);return adminSearch_(p.q,p.stage,p.type,studentRows,groupRows,p.offset,p.facultyEmail,p.limit);}
   if(action==='detail'){permission_(role,['admin']);return adminDetail_(p.studentId,studentRows,groupRows);}

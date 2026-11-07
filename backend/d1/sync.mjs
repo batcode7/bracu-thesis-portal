@@ -4,7 +4,7 @@
  * then, students keep seeing the last successful snapshot.
  */
 // Accept legacy snapshot kinds during migration; new snapshots publish `admin`.
-const KINDS = new Set(['student','student_email','group','assignment','faculty','admin','prime_admin','deadline','resource']);
+const KINDS = new Set(['student','student_email','group','assignment','faculty','faculty_list','admin','prime_admin','deadline','resource']);
 const reply = (value,status=200) => Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const clean = value => typeof value==='string'?value.trim():'';
 async function equalSecret(a,b){

@@ -45,6 +45,9 @@ test('Apps Script D1 snapshots index verified assignments, student email and mas
   assert.equal(records.find(r=>r.kind==='student_email').data.studentId,'22100001');
   assert.equal(records.find(r=>r.kind==='group').data.phaseComments.P2,'Review experimental methodology');
   assert.deepEqual(Array.from(records.find(r=>r.kind==='assignment').data.myRoles),['Supervisor']);
+  const facultyPage=records.find(r=>r.kind==='faculty_list');
+  assert.equal(facultyPage.data.email,'faculty@bracu.ac.bd');
+  assert.equal(facultyPage.data.groups,1);
   assert.equal(records.find(r=>r.kind==='resource').data.title,'Template');
   assert.ok(records.find(r=>r.kind==='admin'&&r.key==='partha.bhoumik@bracu.ac.bd'));
 });

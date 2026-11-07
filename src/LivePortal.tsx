@@ -305,7 +305,7 @@ export default function LivePortal() {
     const action=role==='student'?'student':role==='supervisor'?'supervisor':null;
     if(!action)return;
     let active=true;setDataBusy(true);setData(null);setError('');
-    liveRequest<StudentDashboard|SupervisorDashboard>(token,action).then(result=>{if(active)setData(result);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setDataBusy(false);});
+    liveRequest<StudentDashboard|SupervisorDashboard>(token,action,action==='supervisor'?{offset:0,limit:10,stage:'all',type:'all',myRole:'all',q:''}:{}).then(result=>{if(active)setData(result);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setDataBusy(false);});
     return()=>{active=false;};
   },[session,token,dataAttempt,role,preview]);
   if(restoring)return <PortalLoading fullPage label="Restoring your university session" detail="Verifying your secure sign-in and access permissions…"/>;
@@ -332,7 +332,7 @@ export default function LivePortal() {
           page==='deadlines'?<LiveDeadlines token={token} studentStage={role==='student'?(displayData as StudentDashboard|null)?.group?.stage||'':undefined}/>:
           page==='resources'?<LiveResources token={token}/>:
           role==='student'?displayData?<StudentExperience data={displayData as StudentDashboard} page={page==='evaluations'?'evaluations':'dashboard'} onNavigate={setPage}/>:awaitingData:
-          role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard}/>:awaitingData:
+          role==='supervisor'?displayData?<SupervisorExperience data={displayData as SupervisorDashboard} token={preview?undefined:token}/>:awaitingData:
           page==='dashboard'?(showAdminControls?<SimpleOverview token={token}/>:<LiveSummary token={token}/>):
           page==='search'?(showAdminControls?<PrimeSearch token={token}/>:<LiveSearch token={token}/>):
           page==='sources'?<LiveSources token={token} readOnly={!!preview}/>:

@@ -49,3 +49,7 @@
 .supervisor-no-feedback{font-size:11px;color:#92a5b4;margin:0;padding:15px 17px}
 @media(max-width:700px){.supervisor-abstract{padding:15px}.supervisor-section-title{align-items:flex-start}.supervisor-roster-actions{gap:9px}}
 @media(max-width:440px){.supervisor-section-title{flex-direction:column;gap:8px}.supervisor-roster-actions{justify-content:space-between;width:100%}}
+.supervisor-abstract-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.supervisor-abstract-heading h3{margin:0}
+.supervisor-abstract-heading .lightbtn{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.supervisor-fetch-status{display:flex;align-items:center;gap:8px;padding:10px 16px;color:#40627f;font-size:13px}

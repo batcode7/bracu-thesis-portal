@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS portal_cache (
 CREATE INDEX IF NOT EXISTS idx_portal_cache_email ON portal_cache(generation,kind,email);
 CREATE INDEX IF NOT EXISTS idx_portal_cache_thesis ON portal_cache(generation,kind,thesis_id);
 CREATE INDEX IF NOT EXISTS idx_portal_cache_stage ON portal_cache(generation,kind,stage);
+CREATE INDEX IF NOT EXISTS idx_portal_cache_name ON portal_cache(generation,kind,name);
 
 CREATE TABLE IF NOT EXISTS portal_sync_runs (
   generation TEXT PRIMARY KEY,

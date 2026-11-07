@@ -2,15 +2,16 @@ import { readD1Action } from '../d1/read.mjs';
 
 /**
  * BRACU Portal secure HTTP handler. Used by Cloudflare Pages Functions.
- * It validates Google Workspace ID tokens cryptographically and forwards only
- * verified identities to a secret-protected owner-run Apps Script backend.
+ * It validates Google Workspace ID tokens cryptographically, serves indexed
+ * authorized reads from D1 and forwards write/legacy actions only after
+ * verification to the secret-protected owner-run Apps Script backend.
  */
 
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const ROUTES = new Set([
   'login','logout','session','student','supervisor','deadlines','search','suggest','detail','summary','overview','overviewCounts','preview','previewCandidates',
-  'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty','resources',
+  'registry','admins','addAdmin','removeAdmin','faculty','facultyList','setFaculty','resources','groupAbstract','groupAbstracts',
   'sync','restartSync','aliases','setAlias','removeAlias',
   'announcements','saveAnnouncement','statusAnnouncement','updateFaculty'
 ]);
@@ -168,7 +169,7 @@ export default {
       const payload=text ? JSON.parse(text) : {};
       if (Array.isArray(payload) || typeof payload !== 'object' || !payload) return json({ok:false,error:'Invalid request'},400,expected);
       const routedAction=action==='login'?'session':action;
-      const accelerated=await readD1Action(routedAction,principal,env);
+      const accelerated=await readD1Action(routedAction,principal,env,payload);
       const data=accelerated?.handled?accelerated.data:await forwardToAppsScript(routedAction,payload,principal,env);
       const response=json({ok:true,data},200,expected);
       if(action==='login')response.headers.set('set-cookie',sessionCookie(await signSession(principal,env),SESSION_TTL));

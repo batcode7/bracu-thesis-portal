@@ -56,6 +56,11 @@ function d1Snapshot_() {
     put('group',g.id,Object.assign({},g,{facultyContacts:contacts}), '',g.id,g.stage,g.title);
     Object.keys(assignments).forEach(function(email){put('assignment',email+'|'+g.id,{email:email,thesisId:g.id,myRoles:assignments[email]},email,g.id,g.stage,'');});
   });
+  // Precompute the faculty directory so the website never has to scan the
+  // full group master just to display the first page of faculty members.
+  facultyList_(groups).forEach(function(item,index){
+    put('faculty_list',item.email||'unmatched-'+index,item,item.email,'','',item.name);
+  });
   adminEmails_().forEach(function(email){put('admin',email,{email:email},email,'','','');});
   content.deadlines.forEach(function(item){put('deadline',item.id,item,'', '',item.phase,item.title);});
   content.resources.forEach(function(item){put('resource',item.id,item,'', '',item.phase,item.title);});
