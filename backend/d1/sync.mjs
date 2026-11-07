@@ -64,16 +64,31 @@ export async function handleD1Sync(request,env){
       if(active?.checksum===checksum)return reply({ok:true,skip:true});
       const existing=await db.prepare('SELECT * FROM portal_sync_runs WHERE generation=?').bind(generation).first();
       if(existing){
-        if(existing.status!=='loading'||existing.checksum!==checksum||existing.expected_count!==expectedCount||
+        if(existing.status!=='loading'||
            (existing.base_generation||'')!==(active?.generation||'')||(existing.base_checksum||'')!==(active?.checksum||''))
           throw new Error('Synchronization changed while pending; discard its checkpoint and restart');
+        if(existing.checksum!==checksum||existing.expected_count!==expectedCount){
+          if(active){
+            // A changed source during a *delta* needs a new delta plan.
+            // In contrast, an initial import can reconcile against its own
+            // staged rows without discarding the earlier 10,000+ uploads.
+            return reply({ok:true,restart:true});
+          }
+          await db.batch([
+            db.prepare('UPDATE portal_sync_runs SET checksum=?,expected_count=? WHERE generation=?')
+              .bind(checksum,expectedCount,generation),
+            // Recompute removals against the newest Sheet state. A previously
+            // removed key may have been restored in the meantime.
+            db.prepare('DELETE FROM portal_sync_deletes WHERE generation=?').bind(generation),
+          ]);
+        }
       }else{
         await cleanAbandoned(db,generation);
         await db.prepare('INSERT INTO portal_sync_runs(generation,checksum,expected_count,base_generation,base_checksum,started_at,status) VALUES(?,?,?,?,?,?,?)')
           .bind(generation,checksum,expectedCount,active?.generation||'',active?.checksum||'',new Date().toISOString(),'loading').run();
       }
-      const existingCount=active?await count(db,'SELECT COUNT(*) AS count FROM portal_cache WHERE generation=?',active.generation):0;
-      return reply({ok:true,skip:false,existingCount:existingCount});
+      const existingCount=await count(db,'SELECT COUNT(*) AS count FROM portal_cache WHERE generation=?',active?.generation||generation);
+      return reply({ok:true,skip:false,existingCount:existingCount,initial:!active});
     }
     const job=await db.prepare('SELECT * FROM portal_sync_runs WHERE generation=?').bind(generation).first();
     if(!job||job.status!=='loading')throw new Error('No active synchronization for this identifier');
@@ -81,13 +96,12 @@ export async function handleD1Sync(request,env){
     if((active?.generation||'')!==(job.base_generation||'')||(active?.checksum||'')!==(job.base_checksum||''))
       throw new Error('Active dataset changed during synchronization; restart from a fresh manifest');
     if(mode==='index'){
-      if(!job.base_generation)return reply({ok:true,rows:[]});
       const afterKind=clean(body.afterKind),afterKey=clean(body.afterKey);
       if(afterKind&&!KINDS.has(afterKind))throw new Error('Invalid fingerprint cursor');
       const found=await db.prepare(`SELECT kind,item_key AS key,record_hash AS hash FROM portal_cache
         WHERE generation=? AND (kind>? OR (kind=? AND item_key>?))
         ORDER BY kind,item_key LIMIT 1000`)
-        .bind(job.base_generation,afterKind,afterKind,afterKey).all();
+        .bind(job.base_generation||generation,afterKind,afterKind,afterKey).all();
       return reply({ok:true,rows:found.results||[]});
     }
     if(mode==='batch'){
@@ -120,21 +134,27 @@ export async function handleD1Sync(request,env){
       const overlap=await count(db,`SELECT COUNT(*) AS count FROM portal_cache s
         JOIN portal_sync_deletes d ON d.generation=s.generation AND d.kind=s.kind AND d.item_key=s.item_key
         WHERE s.generation=?`,generation);
-      if(overlap)throw new Error('Conflicting update/removal for the same record');
+      if(active&&overlap)throw new Error('Conflicting update/removal for the same record');
       const projected=active?await count(db,`SELECT COUNT(*) AS count FROM (
         SELECT kind,item_key FROM portal_cache a WHERE a.generation=?
           AND NOT EXISTS (SELECT 1 FROM portal_sync_deletes d WHERE d.generation=? AND d.kind=a.kind AND d.item_key=a.item_key)
         UNION SELECT kind,item_key FROM portal_cache WHERE generation=?
-      )`,active.generation,generation,generation):staged;
+      )`,active.generation,generation,generation):staged-removals;
       if(projected!==Number(job.expected_count))
         throw new Error('Record count mismatch; the previous version remains active');
-      if(!active&&removals)throw new Error('Cannot delete records from an empty database');
+      if(!active&&overlap!==removals)throw new Error('Removal record missing from staged import');
       const at=new Date().toISOString();
       if(!active){
-        // First import: staging becomes the active generation without copying it.
+        // First import, including resumptions: reconcile stale staged removals
+        // then publish all remaining rows in one atomic transaction.
         await db.batch([
+          db.prepare(`DELETE FROM portal_cache WHERE generation=? AND EXISTS (
+            SELECT 1 FROM portal_sync_deletes d WHERE d.generation=?
+              AND d.kind=portal_cache.kind AND d.item_key=portal_cache.item_key)`)
+            .bind(generation,generation),
           db.prepare('INSERT INTO portal_active(id,generation,checksum,updated_at) VALUES(1,?,?,?)')
             .bind(generation,job.checksum,at),
+          db.prepare('DELETE FROM portal_sync_deletes WHERE generation=?').bind(generation),
           db.prepare('DELETE FROM portal_sync_runs WHERE generation=?').bind(generation),
         ]);
       }else{

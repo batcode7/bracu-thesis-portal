@@ -95,12 +95,12 @@ function syncD1Now() {
     var pendingChecksum=prop_('D1_PENDING_CHECKSUM');
     var pendingCursor=Number(prop_('D1_PENDING_CURSOR')||0);
     var pendingDeleteCursor=Number(prop_('D1_PENDING_DELETE_CURSOR')||0);
-    var resuming=pendingChecksum===checksum&&/^[a-zA-Z0-9_-]{16,100}$/.test(pendingGeneration)&&
+    var resuming=/^[a-zA-Z0-9_-]{16,100}$/.test(pendingGeneration)&&
       Number.isInteger(pendingCursor)&&pendingCursor>=0&&pendingCursor<=records.length&&
       Number.isInteger(pendingDeleteCursor)&&pendingDeleteCursor>=0&&pendingDeleteCursor<=100000;
     var generation=resuming?pendingGeneration:Utilities.getUuid().replace(/-/g,'');
-    var cursor=resuming?pendingCursor:0;
-    var deleteCursor=resuming?pendingDeleteCursor:0;
+    var cursor=resuming&&pendingChecksum===checksum?pendingCursor:0;
+    var deleteCursor=resuming&&pendingChecksum===checksum?pendingDeleteCursor:0;
     // Save the manifest before sending anything: an interrupted Apps Script
     // invocation can pick up without allocating another generation.
     properties.setProperty('D1_PENDING_GENERATION',generation);
@@ -108,7 +108,24 @@ function syncD1Now() {
     properties.setProperty('D1_PENDING_CURSOR',String(cursor));
     properties.setProperty('D1_PENDING_DELETE_CURSOR',String(deleteCursor));
     var start=d1Send_(url,secret,{mode:'start',generation:generation,checksum:checksum,expectedCount:records.length});
+    if(start.restart){
+      // An in-progress incremental delta was based on an older active
+      // dataset; start a new plan. The server will clean up its staged rows.
+      generation=Utilities.getUuid().replace(/-/g,'');cursor=0;deleteCursor=0;
+      properties.setProperty('D1_PENDING_GENERATION',generation);
+      properties.setProperty('D1_PENDING_CURSOR','0');
+      properties.setProperty('D1_PENDING_DELETE_CURSOR','0');
+      start=d1Send_(url,secret,{mode:'start',generation:generation,checksum:checksum,expectedCount:records.length});
+    }
     if(!start.skip){
+      if(start.initial){
+        // On a first-ever import, the unfinished rows themselves are the
+        // checkpoint. Compare against their hashes, rather than skipping
+        // list positions that may have changed in the live master Sheet.
+        cursor=0;deleteCursor=0;
+        properties.setProperty('D1_PENDING_CURSOR','0');
+        properties.setProperty('D1_PENDING_DELETE_CURSOR','0');
+      }
       // Fetch only the compact row fingerprints, never the student/faculty
       // data itself. Pages are keyset-paginated to avoid oversized responses.
       var stored={},knownCount=0,afterKind='',afterKey='';
@@ -128,7 +145,7 @@ function syncD1Now() {
         }
       }
       assert_(knownCount===Number(start.existingCount||0),'Incomplete D1 fingerprint listing');
-      var shortened=0,updates=[],seen={};
+      var shortened=0,updates=[],newKeys=0,seen={};
       records.forEach(function(record){
         ['email','thesisId','stage'].forEach(function(field){
           assert_(typeof record[field]==='string'&&record[field].length<=250,
@@ -143,13 +160,17 @@ function syncD1Now() {
         if(canonical.name.length<record.name.length)shortened++;
         var identity=canonical.kind+'|'+canonical.key;
         seen[identity]=true;
-        if(stored[identity]!==d1Hash_(JSON.stringify(canonical)))updates.push(canonical);
+        if(stored[identity]!==d1Hash_(JSON.stringify(canonical))){
+          updates.push(canonical);
+          if(!Object.prototype.hasOwnProperty.call(stored,identity))newKeys++;
+        }
       });
       var removals=Object.keys(stored).filter(function(identity){return !seen[identity];}).map(function(identity){
         var split=identity.indexOf('|');return {kind:identity.slice(0,split),key:identity.slice(split+1)};
       });
       assert_(cursor<=updates.length&&deleteCursor<=removals.length,'Invalid D1 pending checkpoint; clear pending script properties');
       if(shortened)Logger.log('D1 shortened '+shortened+' index names; full titles remain in data_json');
+      if(start.initial&&knownCount)Logger.log('D1 resuming initial import: '+knownCount+' records already staged');
       Logger.log('D1 changes: '+updates.length+' added/updated, '+removals.length+' removed, '+(records.length-updates.length)+' unchanged');
       for(var i=cursor;i<updates.length;){
         var chunk=[],bytes=0;
@@ -175,7 +196,11 @@ function syncD1Now() {
           return {synced:false,pending:true,removed:j,count:records.length,generation:generation};
         }
       }
-      d1Send_(url,secret,{mode:'commit',generation:generation,upserts:updates.length,deletes:removals.length});
+      // In an initial import, staged rows include data written in previous
+      // executions. Commit checks the total staged row count, not just the
+      // number uploaded during this particular execution.
+      var totalStaged=start.initial?knownCount+newKeys:updates.length;
+      d1Send_(url,secret,{mode:'commit',generation:generation,upserts:totalStaged,deletes:removals.length});
     }
     properties.deleteProperty('D1_PENDING_GENERATION');
     properties.deleteProperty('D1_PENDING_CHECKSUM');
